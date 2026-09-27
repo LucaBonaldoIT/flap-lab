@@ -41,7 +41,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .tab-close { display: grid; place-items: center; flex: 0 0 18px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #718075; font-size: 12px; line-height: 1; }
 .tab-close:hover { background: #37241e; color: #f0a18c; }
 .document-tab.is-active .tab-close:hover { background: #452c24; }
-.tab-new { display: grid; place-items: center; flex: 0 0 26px; width: 26px; height: 26px; margin-bottom: 6px; padding: 0; border: 1px dashed #354238; border-radius: 7px; background: transparent; color: #7e8b81; font-size: 12px; line-height: 1; cursor: pointer; }
+.tab-new { display: grid; place-items: center; flex: 0 0 26px; width: 26px; height: 26px; margin: 3px 0 5px 4px; padding: 0; border: 1px dashed #354238; border-radius: 7px; background: transparent; color: #7e8b81; font-size: 12px; line-height: 1; cursor: pointer; }
 .tab-new:hover { border-color: #4d5c44; color: #c9d5ca; background: #171d15; }
 .top-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 34px; padding: 0 12px; border: 1px solid #343e36; border-radius: 7px; background: #1b211d; color: #bec8c0; font-size: 11px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }

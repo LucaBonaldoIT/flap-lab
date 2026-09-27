@@ -307,9 +307,14 @@ function renderTabs(): void {
     const tabElement = document.createElement('div');
     tabElement.className = `document-tab${tab.id === activeTabId ? ' is-active' : ''}`;
     tabElement.dataset.tabId = tab.id;
+    tabElement.setAttribute('role', 'tab');
+    tabElement.tabIndex = 0;
+    tabElement.setAttribute('aria-selected', tab.id === activeTabId ? 'true' : 'false');
+    tabElement.addEventListener('click', () => { if (tab.id === activeTabId) beginRename(); else activateTab(tab.id); });
+    tabElement.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (tab.id === activeTabId) beginRename(); else activateTab(tab.id); } });
     const label = document.createElement('button');
-    label.className = 'tab-label'; label.type = 'button'; label.title = 'Click to rename'; label.textContent = tab.filename;
-    label.addEventListener('click', () => { if (tab.id === activeTabId) beginRename(); else activateTab(tab.id); });
+    label.className = 'tab-label'; label.type = 'button'; label.textContent = tab.filename;
+    label.tabIndex = -1;
     tabElement.append(label);
     const close = document.createElement('button');
     close.className = 'tab-close'; close.type = 'button'; close.title = 'Close tab'; close.textContent = '×';
