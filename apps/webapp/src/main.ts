@@ -33,7 +33,7 @@ app.innerHTML = `
     <a class="brand" href="#" aria-label="Flap Lab home">
       <span class="brand-mark">F</span><span>Flap<span class="brand-light"> Lab</span></span>
     </a>
-    <div class="document-name"><span class="live-dot"></span><button id="file-name" class="filename-button" type="button" title="Click to rename">Untitled machine</button></div>
+    <div class="document-tabs" id="document-tabs"></div>
     <div class="top-actions">
       <button class="button button-quiet history-button" id="undo-action" title="Undo (Ctrl/⌘ Z)" aria-label="Undo" disabled>↶</button>
       <button class="button button-quiet history-button" id="redo-action" title="Redo (Ctrl/⌘ Y)" aria-label="Redo" disabled>↷</button>
@@ -141,6 +141,23 @@ let dragStateOrigin = { x: 0, y: 0 };
 let dragPointer = { x: 0, y: 0 };
 let dragMoved = false;
 let suppressCanvasClick = false;
+let activeTabId = 'tab-0';
+let tabCounter = 0;
+
+interface OpenTab {
+  id: string;
+  filename: string;
+  machine: Machine;
+  selectedState: State | null;
+  selectedTransition: Transition | null;
+  history: Machine[];
+  historyIndex: number;
+  viewBox: { x: number; y: number; width: number; height: number } | null;
+}
+
+const openTabs: OpenTab[] = [];
+let history: Machine[] = [];
+let historyIndex = 0;
 let canvasPan: { pointerId: number; clientX: number; clientY: number; viewX: number; viewY: number; moved: boolean } | null = null;
 let spacePanActive = false;
 let currentFilename = 'Untitled machine';
@@ -153,8 +170,6 @@ function generateMachineName(): string {
   const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
   return `${adjective} ${noun}`;
 }
-let history: Machine[] = [cloneAutomaton(machine)];
-let historyIndex = 0;
 
 function machineFingerprint(value: Machine): string {
   return JSON.stringify({
@@ -164,9 +179,8 @@ function machineFingerprint(value: Machine): string {
   });
 }
 
-function updateHistoryButtons(): void {
-  $('#undo-action').toggleAttribute('disabled', historyIndex <= 0);
-  $('#redo-action').toggleAttribute('disabled', historyIndex >= history.length - 1);
+function activeTab(): OpenTab | undefined {
+  return openTabs.find((tab) => tab.id === activeTabId);
 }
 
 function commitHistory(): void {
@@ -177,39 +191,141 @@ function commitHistory(): void {
   updateHistoryButtons();
 }
 
+function updateHistoryButtons(): void {
+  $('#undo-action').toggleAttribute('disabled', historyIndex <= 0);
+  $('#redo-action').toggleAttribute('disabled', historyIndex >= history.length - 1);
+}
+
 function restoreHistory(index: number): void {
   if (index < 0 || index >= history.length || index === historyIndex) return;
   historyIndex = index;
   machine = cloneAutomaton(history[historyIndex]!);
   selectedState = null; selectedTransition = null;
-  render(); updateHistoryButtons(); setStatus(index === history.length - 1 ? 'Redid change.' : 'Undid change.');
+  render(); setStatus(index === history.length - 1 ? 'Redid change.' : 'Undid change.');
 }
 
-function setFilename(filename: string): void {
-  currentFilename = filename;
-  const button = document.createElement('button');
-  button.id = 'file-name'; button.className = 'filename-button'; button.type = 'button'; button.title = 'Click to rename'; button.textContent = filename;
-  button.addEventListener('click', beginRename);
-  document.getElementById('file-name')?.replaceWith(button);
+function storeActiveTab(): void {
+  const tab = activeTab();
+  if (!tab) return;
+  tab.machine = machine; tab.selectedState = selectedState; tab.selectedTransition = selectedTransition;
+  tab.history = history; tab.historyIndex = historyIndex;
+  const view = svg.viewBox.baseVal;
+  tab.viewBox = { x: view.x, y: view.y, width: view.width, height: view.height };
+}
+
+function activateTab(id: string): void {
+  if (id === activeTabId && openTabs.length) return;
+  const previous = activeTab();
+  if (previous) storeActiveTab();
+  const target = openTabs.find((tab) => tab.id === id);
+  if (!target) return;
+  activeTabId = id;
+  machine = target.machine;
+  selectedState = target.selectedState; selectedTransition = target.selectedTransition;
+  history = target.history; historyIndex = target.historyIndex;
+  currentFilename = target.filename;
+  draggingState = null; dragMode = null; dragMoved = false; canvasPan = null; addStateMode = false;
+  $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
+  if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
+  renderTabs(); render(); updateHistoryButtons();
+  setStatus(`Switched to ${target.filename}.`);
+}
+
+function renderTabs(): void {
+  const region = $('#document-tabs');
+  region.replaceChildren();
+  for (const tab of openTabs) {
+    const tabElement = document.createElement('div');
+    tabElement.className = `document-tab${tab.id === activeTabId ? ' is-active' : ''}`;
+    tabElement.dataset.tabId = tab.id;
+    const label = document.createElement('button');
+    label.className = 'tab-label'; label.type = 'button'; label.title = 'Click to rename'; label.textContent = tab.filename;
+    label.addEventListener('click', () => { if (tab.id === activeTabId) beginRename(); else activateTab(tab.id); });
+    tabElement.append(label);
+    const close = document.createElement('button');
+    close.className = 'tab-close'; close.type = 'button'; close.title = 'Close tab'; close.textContent = '×';
+    close.addEventListener('click', (event) => { event.stopPropagation(); closeTab(tab.id); });
+    tabElement.append(close);
+    region.append(tabElement);
+  }
+  const plus = document.createElement('button');
+  plus.className = 'tab-new'; plus.type = 'button'; plus.title = 'New machine'; plus.textContent = '＋';
+  plus.addEventListener('click', () => { $('#new-machine').click(); });
+  region.append(plus);
 }
 
 function beginRename(): void {
-  const button = document.getElementById('file-name');
+  const button = document.querySelector('#document-tabs .is-active .tab-label');
   if (!(button instanceof HTMLButtonElement)) return;
   const input = document.createElement('input');
-  input.id = 'file-name'; input.className = 'filename-edit-input'; input.type = 'text'; input.value = currentFilename; input.setAttribute('aria-label', 'Machine filename');
+  input.className = 'tab-edit-input'; input.type = 'text'; input.value = currentFilename; input.setAttribute('aria-label', 'Machine filename');
   button.replaceWith(input); input.focus(); input.select();
   let finished = false;
   const finish = (save: boolean): void => {
     if (finished) return;
     finished = true;
-    setFilename(save ? input.value.trim() || currentFilename : currentFilename);
+    const tab = activeTab();
+    const name = save ? input.value.trim() : currentFilename;
+    if (tab) tab.filename = name || tab.filename;
+    currentFilename = tab?.filename ?? currentFilename;
+    renderTabs();
   };
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') { event.preventDefault(); finish(true); }
     else if (event.key === 'Escape') { event.preventDefault(); finish(false); }
   });
   input.addEventListener('blur', () => finish(true));
+}
+
+function closeTab(id: string): void {
+  if (openTabs.length <= 1) return;
+  const index = openTabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  const [closed] = openTabs.splice(index, 1);
+  if (closed!.id === activeTabId) {
+    const next = openTabs[Math.max(0, index - 1)]!;
+    activeTabId = '';
+    activateTab(next.id);
+  } else renderTabs();
+}
+
+function openTab(machineInstance: Machine, filename: string, select = true): void {
+  const existing = openTabs.find((tab) => tab.id === activeTabId);
+  if (existing && select) storeActiveTab();
+  const tab: OpenTab = {
+    id: `tab-${++tabCounter}`,
+    filename,
+    machine: machineInstance,
+    selectedState: null,
+    selectedTransition: null,
+    history: [],
+    historyIndex: 0,
+    viewBox: null,
+  };
+  tab.history = [cloneAutomaton(tab.machine)];
+  openTabs.push(tab);
+  activeTabId = tab.id;
+  machine = tab.machine;
+  selectedState = null; selectedTransition = null;
+  history = tab.history; historyIndex = 0;
+  currentFilename = filename;
+  selectedState = null; selectedTransition = null;
+  renderTabs();
+}
+
+function applyLoadedMachine(machineInstance: Machine, filename: string): void {
+  storeActiveTab();
+  machine = machineInstance;
+  selectedState = null; selectedTransition = null;
+  setFilename(filename);
+  renderTabs(); render(); commitHistory(); updateHistoryButtons();
+}
+
+function setFilename(filename: string): void {
+  currentFilename = filename;
+  const tab = activeTab();
+  if (tab) tab.filename = filename;
+  renderTabs();
 }
 
 const svg = $('#automaton-canvas') as unknown as SVGSVGElement;
@@ -287,7 +403,7 @@ function renderMachineSettings(): void {
       if (!Number.isInteger(tapeCount) || tapeCount < 1 || tapeCount > 5) { setStatus('Turing machines support 1–5 tapes.', 'error'); return; }
       if (machine.transitions.length && !window.confirm('Changing the tape count clears the current machine. Continue?')) return;
       machine = new TuringMachine(tapeCount); selectedState = null; selectedTransition = null; setFilename(generateMachineName()); render();
-      commitHistory();
+      commitHistory(); updateHistoryButtons();
       setStatus(`Created ${tapeCount}-tape Turing machine.`);
     });
   } else if (machine instanceof PushdownAutomaton) {
@@ -648,7 +764,7 @@ function loadExample(): void {
   const q2 = example.createState({ x: 720, y: 300 }); q2.name = 'q2';
   example.setInitialState(q0); example.addFinalState(q2);
   example.transition(q0, q0, 'a'); example.transition(q0, q1, 'b'); example.transition(q1, q2, 'c');
-  machine = example; selectedState = null; selectedTransition = null; setFilename('example.jff');
+  applyLoadedMachine(example, 'example.jff');
   render(); commitHistory(); setStatus('Loaded example: aⁿbc.'); showToast('Example automaton loaded');
 }
 
@@ -658,8 +774,8 @@ function openJff(file: File): void {
     if (!(structure instanceof FiniteStateAutomaton || structure instanceof PushdownAutomaton || structure instanceof TuringMachine || structure instanceof MealyMachine || structure instanceof MooreMachine)) {
       throw new Error('This structure is valid JFLAP data but is not an automaton.');
     }
-    machine = structure; selectedState = null; selectedTransition = null; setFilename(file.name);
-    render(); commitHistory(); setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
+    applyLoadedMachine(structure, file.name);
+    setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
   }).catch((error: unknown) => { setStatus(error instanceof Error ? error.message : 'Could not open file.', 'error'); showToast('Could not open that .jff file'); });
 }
 
@@ -677,8 +793,8 @@ function saveJff(): void {
 }
 
 $('#machine-type').addEventListener('change', (event) => {
-  machine = makeMachine((event.target as HTMLSelectElement).value as MachineType); selectedState = null; selectedTransition = null;
-  setFilename(generateMachineName()); render(); commitHistory(); setStatus('New machine created.');
+  openTab(makeMachine((event.target as HTMLSelectElement).value as MachineType), generateMachineName());
+  render(); commitHistory(); setStatus('New machine created.');
 });
 $('#add-state').addEventListener('click', () => { addStateMode = !addStateMode; $('#add-state').classList.toggle('is-active', addStateMode); $('#canvas-shell').classList.toggle('is-adding', addStateMode); $('#canvas-subtitle').textContent = addStateMode ? 'Click anywhere on the canvas to place a state' : 'Drag empty canvas or scroll to pan · drag node to connect · Alt-drag to move'; });
 svg.addEventListener('pointerdown', (event) => {
@@ -766,7 +882,7 @@ $('#run-machine').addEventListener('click', runSimulation);
 $('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') runSimulation(); });
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });
-$('#new-machine').addEventListener('click', () => { machine = makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType); selectedState = null; selectedTransition = null; setFilename(generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
+$('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
 $('#load-example').addEventListener('click', loadExample);
 $('#zoom-in').addEventListener('click', () => zoomAt(1.2));
 $('#zoom-out').addEventListener('click', () => zoomAt(1 / 1.2));
@@ -779,7 +895,6 @@ $('#fit-canvas').addEventListener('click', () => {
   setCanvasView(minX, minY, width, height);
 });
 $('#clear-transitions').addEventListener('click', () => { for (const transition of [...machine.transitions]) machine.removeTransition(transition as never); render(); commitHistory(); setStatus('All transitions cleared.'); });
-$('#file-name').addEventListener('click', beginRename);
 $('#undo-action').addEventListener('click', () => restoreHistory(historyIndex - 1));
 $('#redo-action').addEventListener('click', () => restoreHistory(historyIndex + 1));
 document.addEventListener('keydown', (event) => {
@@ -810,6 +925,7 @@ document.addEventListener('keydown', (event) => {
   else if (key === 'z') { event.preventDefault(); restoreHistory(historyIndex - 1); }
 });
 document.addEventListener('keyup', (event) => { if (event.code === 'Space') spacePanActive = false; });
-setFilename(generateMachineName());
+openTab(new FiniteStateAutomaton(), generateMachineName());
 render();
+commitHistory();
 updateHistoryButtons();
