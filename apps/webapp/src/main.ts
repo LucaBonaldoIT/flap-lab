@@ -33,7 +33,7 @@ app.innerHTML = `
     <a class="brand" href="#" aria-label="Flap Lab home">
       <span class="brand-mark">F</span><span>Flap<span class="brand-light"> Lab</span></span>
     </a>
-    <div class="document-name"><span class="live-dot"></span><button id="file-name" class="filename-button" type="button" title="Click to rename">Untitled machine</button><span class="saved-pill">LOCAL</span></div>
+    <div class="document-name"><span class="live-dot"></span><button id="file-name" class="filename-button" type="button" title="Click to rename">Untitled machine</button></div>
     <div class="top-actions">
       <button class="button button-quiet history-button" id="undo-action" title="Undo (Ctrl/⌘ Z)" aria-label="Undo" disabled>↶</button>
       <button class="button button-quiet history-button" id="redo-action" title="Redo (Ctrl/⌘ Y)" aria-label="Redo" disabled>↷</button>
@@ -64,7 +64,6 @@ app.innerHTML = `
         <div id="state-editor-fields" class="muted-hint">Select a state on the canvas to edit its properties.</div>
       </div>
 
-      <div class="sidebar-footer"><span class="keyboard-hint"><kbd>Drag canvas</kbd> pan · <kbd>Drag node</kbd> connect</span><span class="version-tag">CORE · TS</span></div>
     </aside>
 
     <section class="canvas-column">
@@ -124,10 +123,10 @@ app.innerHTML = `
         <div class="simulation-result" id="simulation-result"><div class="result-placeholder"><span class="result-pulse"></span>Awaiting input</div></div>
       </section>
 
-      <div class="right-sidebar-footer"><span class="privacy-icon">◆</span><span>Runs locally in your browser</span><span class="license-links"><a href="./LICENSE-JFLAP" target="_blank" rel="noreferrer">License</a><a href="https://github.com/LucaBonaldoIT/flap-lab/issues" target="_blank" rel="noreferrer">Contact</a></span></div>
+      <div class="right-sidebar-footer"><span class="license-links"><a href="./LICENSE-JFLAP" target="_blank" rel="noreferrer">License</a><a href="https://github.com/LucaBonaldoIT/flap-lab/issues" target="_blank" rel="noreferrer">Contact</a></span></div>
     </aside>
   </main>
-  <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> BROWSER WORKBENCH</span></footer>
+  <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> MADE BY <a href="https://github.com/LucaBonaldoIT">LUCA BONALDO</a></span></footer>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
 `;
 
@@ -145,6 +144,15 @@ let suppressCanvasClick = false;
 let canvasPan: { pointerId: number; clientX: number; clientY: number; viewX: number; viewY: number; moved: boolean } | null = null;
 let spacePanActive = false;
 let currentFilename = 'Untitled machine';
+
+const NAME_ADJECTIVES = ['Amber', 'Basalt', 'Bristling', 'Cobalt', 'Crystal', 'Dusk', 'Ember', 'Feral', 'Gilded', 'Hollow', 'Ivory', 'Juniper', 'Lattice', 'Misty', 'Nimbus', 'Oaken', 'Prism', 'Quartz', 'Rustic', 'Silent', 'Tidal', 'Umber', 'Velvet', 'Willow'];
+const NAME_NOUNS = ['Automaton', 'Basin', 'Beacon', 'Cipher', 'Compass', 'Cyclone', 'Engine', 'Falcon', 'Furnace', 'Garden', 'Generator', 'Harbor', 'Junction', 'Lantern', 'Loom', 'Machine', 'Maze', 'Orchard', 'Prism', 'Relay', 'Spiral', 'Spire', 'Vortex', 'Weaver'];
+
+function generateMachineName(): string {
+  const adjective = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)];
+  const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
+  return `${adjective} ${noun}`;
+}
 let history: Machine[] = [cloneAutomaton(machine)];
 let historyIndex = 0;
 
@@ -278,7 +286,7 @@ function renderMachineSettings(): void {
       const tapeCount = Number(($('#tape-count') as HTMLInputElement).value);
       if (!Number.isInteger(tapeCount) || tapeCount < 1 || tapeCount > 5) { setStatus('Turing machines support 1–5 tapes.', 'error'); return; }
       if (machine.transitions.length && !window.confirm('Changing the tape count clears the current machine. Continue?')) return;
-      machine = new TuringMachine(tapeCount); selectedState = null; selectedTransition = null; setFilename('Untitled machine'); render();
+      machine = new TuringMachine(tapeCount); selectedState = null; selectedTransition = null; setFilename(generateMachineName()); render();
       commitHistory();
       setStatus(`Created ${tapeCount}-tape Turing machine.`);
     });
@@ -670,7 +678,7 @@ function saveJff(): void {
 
 $('#machine-type').addEventListener('change', (event) => {
   machine = makeMachine((event.target as HTMLSelectElement).value as MachineType); selectedState = null; selectedTransition = null;
-  setFilename('Untitled machine'); render(); commitHistory(); setStatus('New machine created.');
+  setFilename(generateMachineName()); render(); commitHistory(); setStatus('New machine created.');
 });
 $('#add-state').addEventListener('click', () => { addStateMode = !addStateMode; $('#add-state').classList.toggle('is-active', addStateMode); $('#canvas-shell').classList.toggle('is-adding', addStateMode); $('#canvas-subtitle').textContent = addStateMode ? 'Click anywhere on the canvas to place a state' : 'Drag empty canvas or scroll to pan · drag node to connect · Alt-drag to move'; });
 svg.addEventListener('pointerdown', (event) => {
@@ -758,7 +766,7 @@ $('#run-machine').addEventListener('click', runSimulation);
 $('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') runSimulation(); });
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });
-$('#new-machine').addEventListener('click', () => { machine = makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType); selectedState = null; selectedTransition = null; setFilename('Untitled machine'); render(); commitHistory(); setStatus('New machine created.'); });
+$('#new-machine').addEventListener('click', () => { machine = makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType); selectedState = null; selectedTransition = null; setFilename(generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
 $('#load-example').addEventListener('click', loadExample);
 $('#zoom-in').addEventListener('click', () => zoomAt(1.2));
 $('#zoom-out').addEventListener('click', () => zoomAt(1 / 1.2));
@@ -802,5 +810,6 @@ document.addEventListener('keydown', (event) => {
   else if (key === 'z') { event.preventDefault(); restoreHistory(historyIndex - 1); }
 });
 document.addEventListener('keyup', (event) => { if (event.code === 'Space') spacePanActive = false; });
+setFilename(generateMachineName());
 render();
 updateHistoryButtons();

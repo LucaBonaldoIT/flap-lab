@@ -184,7 +184,8 @@ select { appearance: none; padding-right: 30px; }
 .result-state { display: flex; align-items: center; gap: 8px; color: #e1e9e2; font-size: 11px; font-weight: 600; }
 .result-symbol { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: #39211b; color: #f0a18c; font-size: 12px; }
 .result-detail { margin-top: 6px; color: #829086; font: 9px/1.5 var(--mono); overflow-wrap: anywhere; }
-.result-success { border-color: #704336; background: #201713; }
+.result-success { border-color: #3d5930; background: #161d13; }
+.result-success .result-symbol { background: #24371c; color: #a3d98a; }
 .result-failure { border-color: #49302b; background: #1e1715; }
 .result-failure .result-symbol { background: #3a2521; color: var(--red); }
 .right-sidebar-footer { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 12px 0 3px; border-top: 1px solid #29312b; color: #76837a; font-size: 9px; }
@@ -225,4 +226,5 @@ select { appearance: none; padding-right: 30px; }
   .sidebar-footer { margin-top: 15px; }
   .state-list { max-height: 190px; }
   .statusbar > span:last-child { display: none; }
+  .canvas-title div span { display: none; }
 }
