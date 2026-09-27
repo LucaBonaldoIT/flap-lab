@@ -1,0 +1,23 @@
+{
+  "name": "flap-lab-core",
+  "version": "0.1.0",
+  "description": "JFLAP-derived automata, grammar, parser, and formal-language tools",
+  "license": "SEE LICENSE IN LICENSE-JFLAP",
+  "author": "Luca Bonaldo IT (https://github.com/LucaBonaldoIT)",
+  "repository": { "type": "git", "url": "git+https://github.com/LucaBonaldoIT/flap-lab.git", "directory": "packages/core" },
+  "bugs": { "url": "https://github.com/LucaBonaldoIT/flap-lab/issues" },
+  "files": ["dist", "README.md", "LICENSE-JFLAP"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test"
+  }
+}
