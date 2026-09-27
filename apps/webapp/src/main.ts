@@ -121,7 +121,7 @@ app.innerHTML = `
         <label class="field-label" for="input-string">Input string</label>
         <div class="input-with-action"><input id="input-string" type="text" placeholder="Type input…" autocomplete="off" /><button id="run-machine" class="run-button" title="Run simulation">▶</button></div>
         <div class="simulator-options" id="simulator-options"></div>
-        <div class="simulation-result" id="simulation-result"><div class="result-placeholder"><span class="result-pulse"></span>Awaiting input</div></div>
+        <div class="simulation-result" id="simulation-result" hidden></div>
       </section>
 
       <div class="right-sidebar-footer"><span class="license-links"><a href="./LICENSE-JFLAP" target="_blank" rel="noreferrer">License</a><a href="https://github.com/LucaBonaldoIT/flap-lab/issues" target="_blank" rel="noreferrer">Contact</a></span></div>
@@ -651,7 +651,13 @@ function renderStateEditor(): void {
   if (!selectedState) {
     if (selectedTransition) {
       $('#selected-title').textContent = 'TRANSITION SELECTED';
-      fields.innerHTML = `<div class="muted-hint">${escapeHtml(selectedTransition.from.name)} → ${escapeHtml(selectedTransition.to.name)}<br /><br />${escapeHtml(transitionLabel(selectedTransition))}<br /><br />Wh </div>`;
+      const transition = selectedTransition;
+      fields.innerHTML = `<div class="muted-hint transition-inspector-row">${escapeHtml(transitionLabel(transition) || 'λ')}: ${escapeHtml(transition.from.name)} → ${escapeHtml(transition.to.name)}</div><button class="button button-danger-ghost" id="delete-transition">Delete transition</button>`;
+      $('#delete-transition').addEventListener('click', () => {
+        machine.removeTransition(transition as never);
+        if (selectedTransition === transition) selectedTransition = null;
+        render(); commitHistory(); setStatus(`Deleted transition ${transitionLabel(transition)}.`);
+      });
     } else fields.innerHTML = '<div class="muted-hint">Select a state or transition on the canvas to inspect it.</div>';
     return;
   }
@@ -868,6 +874,7 @@ function runSimulation(): void {
 
 function renderSimulationResult(success: boolean, title: string, detail: string): void {
   const result = $('#simulation-result');
+  result.hidden = false;
   result.className = `simulation-result ${success ? 'result-success' : 'result-failure'}`;
   result.innerHTML = `<div class="result-state"><span class="result-symbol">${success ? '✓' : '×'}</span><span>${escapeHtml(title)}</span></div><div class="result-detail">${escapeHtml(detail)}</div>`;
   setStatus(title, success ? 'success' : 'error');

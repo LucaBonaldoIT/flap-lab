@@ -95,6 +95,7 @@ select { appearance: none; padding-right: 30px; }
 .editor-card-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: #7f8c82; font: 500 9px var(--mono); letter-spacing: .1em; }
 .editor-indicator { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .muted-hint { color: #66736a; font-size: 10px; line-height: 1.55; }
+.transition-inspector-row { margin: 2px 0 12px; padding: 8px 10px; border: 1px solid #2a332d; border-radius: 6px; background: #141a16; color: #a9b4ab; font: 11px var(--mono); }
 .control-input { height: 31px; margin-bottom: 11px; font-size: 10px; }
 .state-flags { display: flex; flex-direction: column; gap: 9px; margin: 3px 0 14px; }
 .check-row { display: flex; align-items: center; gap: 8px; color: #a1aca3; font-size: 10px; cursor: pointer; }
