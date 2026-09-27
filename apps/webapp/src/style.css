@@ -224,8 +224,8 @@ select { appearance: none; padding-right: 30px; }
   .transition-panel { flex-basis: 150px; max-height: 150px; }
 }
 @media (max-width: 700px) {
-  .topbar { height: auto; min-height: 58px; flex: 0 0 auto; flex-wrap: wrap; gap: 10px; padding: 10px 12px; }
-  .document-tabs { order: 3; width: 100%; margin-bottom: 8px; }
+  .topbar { height: auto; min-height: 58px; flex: 0 0 auto; flex-wrap: wrap; gap: 10px; padding: 10px 12px; padding-bottom: 0;}
+  .document-tabs { order: 3; width: 100%; margin-bottom: 0; }
   .top-actions { gap: 5px; }
   .top-actions .button { min-height: 30px; padding: 0 8px; font-size: 9px; }
   .workspace { display: flex; flex-direction: column; }
