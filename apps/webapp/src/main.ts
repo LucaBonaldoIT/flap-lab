@@ -841,9 +841,63 @@ function addTransition(event: SubmitEvent): void {
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not add transition.', 'error'); }
 }
 
-function runSimulation(): void {
-  const input = ($('#input-string') as HTMLInputElement).value;
+function simulateInput(input: string): { success: boolean; result: string; output?: string } {
+  if (machine instanceof FiniteStateAutomaton) {
+    return { success: new FSASimulator(machine).run(input).accepted, result: '' };
+  }
+  if (machine instanceof PushdownAutomaton) {
+    const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'empty-stack' | 'either' | undefined;
+    const initialStackSymbol = ($('#initial-stack') as HTMLInputElement | null)?.value ?? 'Z';
+    return { success: new PDASimulator(machine, initialStackSymbol).run(input, acceptance ? { acceptance } : {}).accepted, result: '' };
+  }
+  if (machine instanceof TuringMachine) {
+    const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'halting' | 'either' | undefined;
+    const maxSteps = Number(($('#step-limit') as HTMLInputElement | null)?.value ?? 1000);
+    const simulation = new TuringMachineSimulator(machine).run(input, acceptance ? { acceptance, maxSteps } : { maxSteps });
+    return { success: simulation.accepted, result: simulation.accepted ? 'accepted' : simulation.halted ? 'halted' : 'limit' };
+  }
+  if (machine instanceof MealyMachine) {
+    const outputs = new MealySimulator(machine).run(input).outputs;
+    return { success: outputs.length > 0, result: 'transduced', output: outputs.join(' · ') };
+  }
+  const outputs = new MooreSimulator(machine).run(input).outputs;
+  return { success: outputs.length > 0, result: 'transduced', output: outputs.join(' · ') };
+}
+
+function renderSimulationTable(state: 'success' | 'mixed' | 'failure', title: string, outcomes: Array<{ input: string; success: boolean; result: string; output?: string }>): void {
   const result = $('#simulation-result');
+  result.hidden = false;
+  result.className = `simulation-result ${state === 'success' ? 'result-success' : state === 'mixed' ? 'result-mixed' : 'result-failure'}`;
+  const transducer = outcomes.some((item) => item.output !== undefined);
+  const header = transducer ? '<tr><th>Input</th><th>Result</th><th>Output</th></tr>' : '<tr><th>Input</th><th>Result</th></tr>';
+  const rows = outcomes.map((item) => {
+    const input = item.input || 'λ';
+    const symbol = item.success ? '✓' : '×';
+    const cells = transducer ? `<td class="result-cell-input">${escapeHtml(input)}</td><td>${symbol} ${escapeHtml(item.result || (item.success ? 'accepted' : 'rejected'))}</td><td>${escapeHtml(item.output || '—')}</td>` : `<td class="result-cell-input">${escapeHtml(input)}</td><td>${symbol} ${escapeHtml(item.result || (item.success ? 'accepted' : 'rejected'))}</td>`;
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  result.innerHTML = `<div class="result-state"><span class="result-symbol">${state === 'failure' ? '×' : '✓'}</span><span>${escapeHtml(title)}</span></div><table class="result-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+  setStatus(title, state === 'success' ? 'success' : state === 'failure' ? 'error' : 'ready');
+}
+
+function runSimulation(): void {
+  const raw = ($('#input-string') as HTMLInputElement).value;
+  const inputs = raw.includes(',') ? raw.split(',').map((part) => part.trim()) : [raw];
+  try {
+    if (inputs.length === 1) {
+      runSingleSimulation(inputs[0]!);
+      return;
+    }
+    const outcomes = inputs.map((input) => ({ input, ...simulateInput(input) }));
+    const accepted = outcomes.filter((item) => item.success).length;
+    const allAccepted = accepted === outcomes.length;
+    const noneAccepted = accepted === 0;
+    const title = allAccepted ? `Inputs accepted (${accepted}/${outcomes.length})` : noneAccepted ? `Inputs rejected (0/${outcomes.length})` : `Mixed results (${accepted}/${outcomes.length})`;
+    renderSimulationTable(allAccepted ? 'success' : noneAccepted ? 'failure' : 'mixed', title, outcomes);
+  } catch (error) { renderSimulationResult(false, 'Simulation error', error instanceof Error ? error.message : String(error)); }
+}
+
+function runSingleSimulation(input: string): void {
   try {
     if (machine instanceof FiniteStateAutomaton) {
       const simulation = new FSASimulator(machine).run(input);
