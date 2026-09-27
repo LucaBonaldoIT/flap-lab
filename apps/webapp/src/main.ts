@@ -83,9 +83,9 @@ app.innerHTML = `
       <div class="canvas-shell" id="canvas-shell">
         <svg id="automaton-canvas" viewBox="0 0 1000 640" role="img" aria-label="Pannable automaton editing canvas" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#a7b2aa" /></marker>
-            <marker id="arrowhead-selected" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#a4e66d" /></marker>
-            <marker id="start-arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#a4e66d" /></marker>
+            <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#6f665c" /></marker>
+            <marker id="arrowhead-selected" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#b02e0c" /></marker>
+            <marker id="start-arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#b02e0c" /></marker>
           </defs>
           <g id="graph-layer"></g>
         </svg>
