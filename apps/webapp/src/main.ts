@@ -418,10 +418,23 @@ const stateList = $('#state-list');
 const transitionList = $('#transition-list');
 const transitionFields = $('#transition-fields');
 
+function updateGridBackground(): void {
+  const shell = document.querySelector<HTMLElement>('.canvas-shell');
+  if (!shell) return;
+  const view = svg.viewBox.baseVal;
+  const scale = svgUnitScale();
+  const size = Math.max(16, Math.min(96, 48 * scale));
+  const px = (-view.x * scale) % size - 6;
+  const py = (-view.y * scale) % size - 6;
+  shell.style.backgroundSize = `${size}px ${size}px`;
+  shell.style.backgroundPosition = `${px}px ${py}px`;
+}
+
 function setCanvasView(x: number, y: number, width = svg.viewBox.baseVal.width, height = svg.viewBox.baseVal.height): void {
   svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
   const level = document.getElementById('zoom-level');
   if (level) level.textContent = `${Math.round(1000 / width * 100)}%`;
+  updateGridBackground();
   scheduleSave();
 }
 
@@ -968,7 +981,11 @@ document.addEventListener('pointerup', (event) => {
       .sort((left, right) => left.distance - right.distance)[0]?.state;
     if (target) createBlankTransition(source, target);
     else {
-      const destination = machine.createState({ x: Math.max(36, Math.min(964, point.x)), y: Math.max(36, Math.min(604, point.y)) });
+      const view = svg.viewBox.baseVal;
+      const destination = machine.createState({
+        x: Math.max(view.x + 36, Math.min(view.x + view.width - 36, point.x)),
+        y: Math.max(view.y + 36, Math.min(view.y + view.height - 36, point.y)),
+      });
       createBlankTransition(source, destination);
       setStatus(`Added ${destination.name} and connected a transition.`);
     }
@@ -1041,5 +1058,6 @@ if (!restoreWorkspace()) {
   render();
   commitHistory();
 }
+updateGridBackground();
 updateHistoryButtons();
 window.addEventListener('beforeunload', persistWorkspace);
