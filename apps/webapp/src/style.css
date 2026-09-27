@@ -91,7 +91,7 @@ select { appearance: none; padding-right: 30px; }
 .state-list-dot.state-both { border: 3px double var(--accent); box-shadow: -4px 0 0 -2px var(--accent); }
 .state-list-name { flex: 1; overflow: hidden; font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .state-list-id { color: #66736a; font: 9px var(--mono); }
-.editor-card { padding: 12px 11px 11px; border: 1px solid #2d3730; border-radius: 8px; background: #141a16; }
+.editor-card { padding: 14px 0 11px; border: 0; border-top: 1px solid #2d3730; border-radius: 0; background: transparent; }
 .editor-card-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: #7f8c82; font: 500 9px var(--mono); letter-spacing: .1em; }
 .editor-indicator { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .muted-hint { color: #66736a; font-size: 10px; line-height: 1.55; }
@@ -228,7 +228,8 @@ select { appearance: none; padding-right: 30px; }
   .right-sidebar { order: 3; display: flex; border-left: 0; }
   .canvas-shell { flex: 1; min-height: 360px; }
   #automaton-canvas { min-height: 360px; }
-  .transition-panel { flex-basis: 150px; }
+  .transition-panel { flex-basis: auto; max-height: none; }
+  .transition-list { height: auto; max-height: 260px; }
   .sidebar-footer { margin-top: 15px; }
   .state-list { max-height: 190px; }
   .statusbar > span:last-child { display: none; }

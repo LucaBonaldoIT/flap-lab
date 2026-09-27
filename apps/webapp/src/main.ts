@@ -651,7 +651,7 @@ function renderStateEditor(): void {
   if (!selectedState) {
     if (selectedTransition) {
       $('#selected-title').textContent = 'TRANSITION SELECTED';
-      fields.innerHTML = `<div class="muted-hint">${escapeHtml(selectedTransition.from.name)} → ${escapeHtml(selectedTransition.to.name)}<br /><br />${escapeHtml(transitionLabel(selectedTransition))}<br /><br />Press Backspace or Delete to remove this transition.</div>`;
+      fields.innerHTML = `<div class="muted-hint">${escapeHtml(selectedTransition.from.name)} → ${escapeHtml(selectedTransition.to.name)}<br /><br />${escapeHtml(transitionLabel(selectedTransition))}<br /><br />Wh </div>`;
     } else fields.innerHTML = '<div class="muted-hint">Select a state or transition on the canvas to inspect it.</div>';
     return;
   }
