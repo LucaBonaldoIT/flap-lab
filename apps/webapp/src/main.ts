@@ -4,6 +4,7 @@ import {
   FSATransition,
   FiniteStateAutomaton,
   JFFCodec,
+  JFLAPStructure,
   MealyMachine,
   MealySimulator,
   MealyTransition,
@@ -189,6 +190,7 @@ function commitHistory(): void {
   history.push(cloneAutomaton(machine));
   historyIndex = history.length - 1;
   updateHistoryButtons();
+  scheduleSave();
 }
 
 function updateHistoryButtons(): void {
@@ -202,6 +204,7 @@ function restoreHistory(index: number): void {
   machine = cloneAutomaton(history[historyIndex]!);
   selectedState = null; selectedTransition = null;
   render(); setStatus(index === history.length - 1 ? 'Redid change.' : 'Undid change.');
+  scheduleSave();
 }
 
 function storeActiveTab(): void {
@@ -211,6 +214,71 @@ function storeActiveTab(): void {
   tab.history = history; tab.historyIndex = historyIndex;
   const view = svg.viewBox.baseVal;
   tab.viewBox = { x: view.x, y: view.y, width: view.width, height: view.height };
+}
+
+const STORAGE_KEY = 'flap-lab.workspace.v1';
+let saveTimer = 0;
+
+function scheduleSave(): void {
+  window.clearTimeout(saveTimer);
+  saveTimer = window.setTimeout(persistWorkspace, 250);
+}
+
+function isMachineStructure(value: JFLAPStructure): value is Machine {
+  return value instanceof FiniteStateAutomaton || value instanceof PushdownAutomaton || value instanceof TuringMachine || value instanceof MealyMachine || value instanceof MooreMachine;
+}
+
+function persistWorkspace(): void {
+  try {
+    storeActiveTab();
+    const inputField = document.getElementById('input-string') as HTMLInputElement | null;
+    const tabs = openTabs.map((tab) => {
+      const item: Record<string, unknown> = { id: tab.id, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox };
+      if (tab.machine instanceof PushdownAutomaton) { item.acceptanceMode = tab.machine.acceptanceMode; item.singleInput = tab.machine.singleInput; }
+      else if (tab.machine instanceof TuringMachine) item.acceptanceMode = tab.machine.acceptanceMode;
+      return item;
+    });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, activeTabId, nextTab: tabCounter, input: inputField?.value ?? '', tabs }));
+  } catch {
+    // Storage unavailable or full — session continues without persistence.
+  }
+}
+
+function restoreWorkspace(): boolean {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const payload = JSON.parse(raw) as { activeTabId?: string; nextTab?: number; input?: string; tabs?: Array<Record<string, unknown>> };
+    if (!Array.isArray(payload.tabs)) return false;
+    for (const item of payload.tabs) {
+      if (!item || typeof item.jff !== 'string' || typeof item.filename !== 'string' || typeof item.id !== 'string') continue;
+      try {
+        const structure = JFFCodec.decode(item.jff);
+        if (!isMachineStructure(structure)) continue;
+        if (structure instanceof PushdownAutomaton) {
+          if (typeof item.singleInput === 'boolean') structure.singleInput = item.singleInput;
+          if (typeof item.acceptanceMode === 'string') structure.acceptanceMode = item.acceptanceMode as PushdownAutomaton['acceptanceMode'];
+        } else if (structure instanceof TuringMachine && typeof item.acceptanceMode === 'string') {
+          structure.acceptanceMode = item.acceptanceMode as TuringMachine['acceptanceMode'];
+        }
+        const numericId = Number(String(item.id).slice(4));
+        if (Number.isFinite(numericId)) tabCounter = Math.max(tabCounter, numericId);
+        openTab(structure, item.filename, String(item.id));
+        if (item.viewBox && typeof item.viewBox === 'object') {
+          const view = item.viewBox as { x: number; y: number; width: number; height: number };
+          if ([view.x, view.y, view.width, view.height].every((value) => typeof value === 'number')) activeTab()!.viewBox = view;
+        }
+      } catch { continue; }
+    }
+    if (!openTabs.length) return false;
+    const storedActive = typeof payload.activeTabId === 'string' && openTabs.some((tab) => tab.id === payload.activeTabId) ? payload.activeTabId : openTabs.at(-1)!.id;
+    activeTabId = '';
+    activateTab(storedActive);
+    if (Number.isFinite(payload.nextTab)) tabCounter = Math.max(tabCounter, Number(payload.nextTab));
+    const inputField = document.getElementById('input-string') as HTMLInputElement | null;
+    if (inputField && typeof payload.input === 'string') inputField.value = payload.input;
+    return true;
+  } catch { return false; }
 }
 
 function activateTab(id: string): void {
@@ -229,6 +297,7 @@ function activateTab(id: string): void {
   if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
   renderTabs(); render(); updateHistoryButtons();
   setStatus(`Switched to ${target.filename}.`);
+  scheduleSave();
 }
 
 function renderTabs(): void {
@@ -269,6 +338,7 @@ function beginRename(): void {
     if (tab) tab.filename = name || tab.filename;
     currentFilename = tab?.filename ?? currentFilename;
     renderTabs();
+    scheduleSave();
   };
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') { event.preventDefault(); finish(true); }
@@ -282,6 +352,7 @@ function closeTab(id: string): void {
   const index = openTabs.findIndex((tab) => tab.id === id);
   if (index < 0) return;
   const [closed] = openTabs.splice(index, 1);
+  scheduleSave();
   if (closed!.id === activeTabId) {
     const next = openTabs[Math.max(0, index - 1)]!;
     activeTabId = '';
@@ -289,11 +360,11 @@ function closeTab(id: string): void {
   } else renderTabs();
 }
 
-function openTab(machineInstance: Machine, filename: string, select = true): void {
+function openTab(machineInstance: Machine, filename: string, tabId?: string): void {
   const existing = openTabs.find((tab) => tab.id === activeTabId);
-  if (existing && select) storeActiveTab();
+  if (existing) storeActiveTab();
   const tab: OpenTab = {
-    id: `tab-${++tabCounter}`,
+    id: tabId ?? `tab-${++tabCounter}`,
     filename,
     machine: machineInstance,
     selectedState: null,
@@ -302,6 +373,7 @@ function openTab(machineInstance: Machine, filename: string, select = true): voi
     historyIndex: 0,
     viewBox: null,
   };
+  if (!tabId) tabCounter = Math.max(tabCounter, Number(tab.id.slice(4)) || 0);
   tab.history = [cloneAutomaton(tab.machine)];
   openTabs.push(tab);
   activeTabId = tab.id;
@@ -311,6 +383,7 @@ function openTab(machineInstance: Machine, filename: string, select = true): voi
   currentFilename = filename;
   selectedState = null; selectedTransition = null;
   renderTabs();
+  scheduleSave();
 }
 
 function applyLoadedMachine(machineInstance: Machine, filename: string): void {
@@ -326,6 +399,7 @@ function setFilename(filename: string): void {
   const tab = activeTab();
   if (tab) tab.filename = filename;
   renderTabs();
+  scheduleSave();
 }
 
 const svg = $('#automaton-canvas') as unknown as SVGSVGElement;
@@ -338,6 +412,7 @@ function setCanvasView(x: number, y: number, width = svg.viewBox.baseVal.width, 
   svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
   const level = document.getElementById('zoom-level');
   if (level) level.textContent = `${Math.round(1000 / width * 100)}%`;
+  scheduleSave();
 }
 
 function zoomAt(factor: number, clientX?: number, clientY?: number): void {
@@ -880,6 +955,7 @@ svg.addEventListener('wheel', (event) => {
 $('#transition-form').addEventListener('submit', addTransition);
 $('#run-machine').addEventListener('click', runSimulation);
 $('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') runSimulation(); });
+$('#input-string').addEventListener('input', scheduleSave);
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });
 $('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
@@ -925,7 +1001,10 @@ document.addEventListener('keydown', (event) => {
   else if (key === 'z') { event.preventDefault(); restoreHistory(historyIndex - 1); }
 });
 document.addEventListener('keyup', (event) => { if (event.code === 'Space') spacePanActive = false; });
-openTab(new FiniteStateAutomaton(), generateMachineName());
-render();
-commitHistory();
+if (!restoreWorkspace()) {
+  openTab(new FiniteStateAutomaton(), generateMachineName());
+  render();
+  commitHistory();
+}
 updateHistoryButtons();
+window.addEventListener('beforeunload', persistWorkspace);
