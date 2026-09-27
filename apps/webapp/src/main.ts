@@ -69,7 +69,7 @@ app.innerHTML = `
 
     <section class="canvas-column">
       <div class="canvas-toolbar">
-        <div class="canvas-title"><span class="canvas-title-icon">◉</span><div><strong>Automaton canvas</strong><span id="canvas-subtitle">Drag empty canvas or scroll to pan · drag node to connect · Alt-drag to move</span></div></div>
+        <div class="canvas-title"><span class="canvas-title-icon">◉</span><div><strong>Automaton canvas</strong><span id="canvas-subtitle">Click empty canvas to add a state · drag or scroll to pan · drag node to connect · Alt-drag or double-click to move</span></div></div>
         <div class="canvas-tools">
           <div class="zoom-controls" aria-label="Canvas zoom controls">
             <button class="button button-small zoom-button" id="zoom-out" title="Zoom out">−</button>
@@ -137,6 +137,10 @@ let selectedTransition: Transition | null = null;
 let addStateMode = false;
 let draggingState: State | null = null;
 let dragMode: 'connect' | 'move' | null = null;
+let moveModeState: State | null = null;
+let moveModeEntryDrag = false;
+let lastTapState: State | null = null;
+let lastTapTime = 0;
 let dragOrigin = { x: 0, y: 0 };
 let dragStateOrigin = { x: 0, y: 0 };
 let dragPointer = { x: 0, y: 0 };
@@ -293,6 +297,7 @@ function activateTab(id: string): void {
   history = target.history; historyIndex = target.historyIndex;
   currentFilename = target.filename;
   draggingState = null; dragMode = null; dragMoved = false; canvasPan = null; addStateMode = false;
+  moveModeState = null; moveModeEntryDrag = false;
   $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
   if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
   renderTabs(); render(); updateHistoryButtons();
@@ -575,6 +580,7 @@ function renderState(state: State): void {
   const group = svgElement('g');
   group.classList.add('state-node');
   if (selectedState === state) group.classList.add('is-selected');
+  if (moveModeState === state) group.classList.add('is-move-mode');
   if (stateClass(state)) group.classList.add(stateClass(state));
   group.dataset.stateId = String(state.id);
   group.setAttribute('transform', `translate(${state.point.x} ${state.point.y})`);
@@ -591,7 +597,15 @@ function renderState(state: State): void {
   group.addEventListener('pointerdown', (event) => {
     if (addStateMode || event.button !== 0) return;
     event.preventDefault(); event.stopPropagation(); selectState(state);
-    draggingState = state; dragMode = event.altKey ? 'move' : 'connect'; dragOrigin = eventToCanvas(event); dragStateOrigin = { ...state.point }; dragPointer = dragOrigin; dragMoved = false; suppressCanvasClick = false;
+    const now = performance.now();
+    if (moveModeState !== state && lastTapState === state && now - lastTapTime < 400) {
+      lastTapState = null; lastTapTime = 0;
+      enterMoveMode(state);
+      moveModeEntryDrag = true;
+    } else {
+      lastTapState = state; lastTapTime = now;
+    }
+    draggingState = state; dragMode = event.altKey || moveModeState === state ? 'move' : 'connect'; dragOrigin = eventToCanvas(event); dragStateOrigin = { ...state.point }; dragPointer = dragOrigin; dragMoved = false; suppressCanvasClick = false;
   });
   group.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectState(state); }
@@ -733,10 +747,19 @@ function createBlankTransition(from: State, to: State): void {
 function render(): void {
   renderStateSelectors(); renderTransitionFields(); renderSimulatorOptions(); renderMachineSettings(); renderStateList(); renderStateEditor(); renderSelectedTransitionEditor(); renderTransitions(); renderGraph();
   $<HTMLSelectElement>('#machine-type').value = machineType(machine);
-  $('#canvas-subtitle').textContent = addStateMode ? 'Click anywhere on the canvas to place a state' : 'Drag empty canvas or scroll to pan · drag node to connect · Alt-drag to move';
+  $('#canvas-subtitle').textContent = addStateMode ? 'Click anywhere on the canvas to place a state' : 'Click empty canvas to add a state · drag or scroll to pan · drag node to connect · Alt-drag or double-click to move';
 }
 
-function selectState(state: State | null): void { selectedState = state; selectedTransition = null; render(); }
+function selectState(state: State | null): void {
+  if (moveModeState && moveModeState !== state) { moveModeState = null; renderGraph(); }
+  selectedState = state; selectedTransition = null; render();
+}
+
+function enterMoveMode(state: State): void {
+  moveModeState = state; selectedState = state; selectedTransition = null;
+  renderGraph();
+  setStatus(`Move mode — drag ${state.name} to move. It exits automatically after the move, or on click / Escape.`);
+}
 function selectTransition(transition: Transition | null): void { selectedTransition = transition; selectedState = null; render(); }
 
 function setStatus(message: string, state: 'ready' | 'success' | 'error' = 'ready'): void {
@@ -892,9 +915,9 @@ $('#automaton-canvas').addEventListener('click', (event) => {
   if (suppressCanvasClick) { suppressCanvasClick = false; event.preventDefault(); return; }
   const target = event.target as Element;
   if (target.closest('.state-node, .edge-path, .edge-label')) return;
-  if (addStateMode) {
-    addState(eventToCanvas(event)); $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
-  } else if (selectedState || selectedTransition) selectTransition(null);
+  if (moveModeState) { moveModeState = null; selectTransition(null); return; }
+  addState(eventToCanvas(event));
+  if (addStateMode) { $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding'); }
 });
 document.addEventListener('pointermove', (event) => {
   if (canvasPan) {
@@ -932,6 +955,11 @@ document.addEventListener('pointerup', (event) => {
   }
   if (dragMoved && dragMode === 'move') {
     setStatus(`Moved ${source.name}.`); commitHistory();
+    moveModeEntryDrag = false;
+    if (moveModeState === source) moveModeState = null;
+  } else if (!dragMoved && dragMode === 'move' && moveModeState === source) {
+    if (moveModeEntryDrag) moveModeEntryDrag = false;
+    else { moveModeState = null; setStatus('Move mode off.'); }
   } else if (dragMoved && dragMode === 'connect') {
     const point = eventToCanvas(event);
     const target = machine.states
@@ -946,7 +974,7 @@ document.addEventListener('pointerup', (event) => {
     }
   }
   draggingState = null; dragMode = null; dragMoved = false;
-  renderGraph();
+  if (!moveModeState) renderGraph();
 });
 svg.addEventListener('wheel', (event) => {
   event.preventDefault();
@@ -987,6 +1015,7 @@ document.addEventListener('keydown', (event) => {
     const deletedName = selectedState.name;
     machine.removeState(selectedState);
     selectedState = null;
+    moveModeState = null;
     render(); commitHistory(); setStatus(`Deleted ${deletedName} and its transitions.`);
     return;
   }
@@ -998,6 +1027,7 @@ document.addEventListener('keydown', (event) => {
     render(); commitHistory(); setStatus(`Deleted transition ${label}.`);
     return;
   }
+  if (event.key === 'Escape' && moveModeState) { moveModeState = null; moveModeEntryDrag = false; renderGraph(); setStatus('Move mode off.'); return; }
   if (!(event.metaKey || event.ctrlKey)) return;
   const key = event.key.toLowerCase();
   if (key === '+' || key === '=') { event.preventDefault(); zoomAt(1.2); return; }
