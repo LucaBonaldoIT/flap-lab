@@ -198,6 +198,8 @@ select { appearance: none; padding-right: 30px; }
 .result-cell-input { color: #cbd4cd; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-success { border-color: #3d5930; background: #161d13; }
 .result-success .result-symbol { background: #24371c; color: #a3d98a; }
+.result-mixed { border-color: #6b5a20; background: #1f1a10; }
+.result-mixed .result-symbol { background: #3a3114; color: #e3c25c; }
 .result-failure { border-color: #49302b; background: #1e1715; }
 .result-failure .result-symbol { background: #3a2521; color: var(--red); }
 .right-sidebar-footer { display: flex; align-items: center; gap: 7px; margin-top: auto; padding: 12px 0 3px; border-top: 1px solid #29312b; color: #76837a; font-size: 9px; }
