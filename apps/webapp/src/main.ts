@@ -666,7 +666,10 @@ function renderStateEditor(): void {
     if (selectedTransition) {
       $('#selected-title').textContent = 'TRANSITION SELECTED';
       const transition = selectedTransition;
-      fields.innerHTML = `<div class="muted-hint transition-inspector-row">${escapeHtml(transitionLabel(transition) || 'λ')}: ${escapeHtml(transition.from.name)} → ${escapeHtml(transition.to.name)}</div><button class="button button-danger-ghost" id="delete-transition">Delete transition</button>`;
+      const label = transition instanceof FSATransition || transition instanceof MealyTransition
+        ? labelGroup(transition).map((item) => item || 'λ').join(', ') || 'λ'
+        : transitionLabel(transition);
+      fields.innerHTML = `<div class="muted-hint transition-inspector-row">${escapeHtml(label)}: ${escapeHtml(transition.from.name)} → ${escapeHtml(transition.to.name)}</div><button class="button button-danger-ghost" id="delete-transition">Delete transition</button>`;
       $('#delete-transition').addEventListener('click', () => {
         machine.removeTransition(transition as never);
         if (selectedTransition === transition) selectedTransition = null;
@@ -721,13 +724,24 @@ function renderSelectedTransitionEditor(): void {
   const fields = $('#selected-transition-fields');
   section.hidden = selectedTransition === null;
   if (!selectedTransition) { fields.replaceChildren(); return; }
-  if (selectedTransition instanceof FSATransition) fields.innerHTML = fieldMarkup('Read', 'edit-edge-label', 'a', selectedTransition.label, 'Leave blank for a lambda transition.');
+  if (selectedTransition instanceof FSATransition) fields.innerHTML = fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas. Use λ or leave blank for an empty move.');
   else if (selectedTransition instanceof PDATransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-input', 'a', selectedTransition.input)}${fieldMarkup('Pop', 'edit-edge-pop', 'Z', selectedTransition.pop)}${fieldMarkup('Push', 'edit-edge-push', 'AZ', selectedTransition.push)}`;
   else if (selectedTransition instanceof TMTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-read', 'a | □', selectedTransition.reads.map((symbol) => symbol === ' ' ? '□' : symbol).join(' | '))}${fieldMarkup('Write', 'edit-edge-write', 'b | □', selectedTransition.writes.map((symbol) => symbol === ' ' ? '□' : symbol).join(' | '))}${fieldMarkup('Move', 'edit-edge-move', 'R | S', selectedTransition.directions.join(' | '))}`;
-  else if (selectedTransition instanceof MooreTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a', selectedTransition.label)}${fieldMarkup('Target state output', 'edit-edge-output', 'x', selectedTransition.output)}`;
-  else if (selectedTransition instanceof MealyTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a', selectedTransition.label)}${fieldMarkup('Output', 'edit-edge-output', 'x', selectedTransition.output)}`;
+  else if (selectedTransition instanceof MooreTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas.')}${fieldMarkup('Target state output', 'edit-edge-output', 'x', selectedTransition.output)}`;
+  else if (selectedTransition instanceof MealyTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas.')}${fieldMarkup('Output', 'edit-edge-output', 'x', selectedTransition.output)}`;
   fields.insertAdjacentHTML('beforeend', '<button class="button button-add-transition" id="apply-edge-edit" type="button">Apply transition</button>');
   $('#apply-edge-edit').addEventListener('click', applySelectedTransitionEdit);
+}
+
+function labelGroup(transition: Transition): string[] {
+  return machine.transitions
+    .filter((item) => item.from === transition.from && item.to === transition.to)
+    .map((item) => (item instanceof FSATransition || item instanceof MealyTransition ? item.label : undefined) ?? '')
+    .filter((label) => label !== undefined);
+}
+
+function splitSymbols(raw: string): string[] {
+  return raw.split(',').map((item) => item.trim()).map((item) => /^(λ|Λ|ε)$/u.test(item) ? '' : item);
 }
 
 function applySelectedTransitionEdit(): void {
@@ -736,8 +750,15 @@ function applySelectedTransitionEdit(): void {
   const value = (id: string): string => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? '';
   const lambda = (input: string): string => /^(λ|Λ|ε)$/u.test(input) ? '' : input;
   try {
-    if (transition instanceof FSATransition) transition.label = lambda(value('edit-edge-label'));
-    else if (transition instanceof PDATransition) {
+    if (transition instanceof FSATransition) {
+      const symbols = splitSymbols(value('edit-edge-label'));
+      const from = transition.from; const to = transition.to;
+      if (!(machine instanceof FiniteStateAutomaton)) throw new Error('Transition does not match the machine type.');
+      const automaton = machine;
+      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof FSATransition) automaton.removeTransition(item);
+      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol));
+      selectedTransition = rebuilt[0] ?? null;
+    } else if (transition instanceof PDATransition) {
       const input = lambda(value('edit-edge-input')); const pop = lambda(value('edit-edge-pop')); const push = lambda(value('edit-edge-push'));
       if (machine instanceof PushdownAutomaton && machine.singleInput && ([...pop].length > 1 || [...push].length > 1)) throw new Error('Single-symbol stack operations must contain at most one symbol.');
       transition.input = input; transition.pop = pop; transition.push = push;
@@ -751,11 +772,23 @@ function applySelectedTransitionEdit(): void {
       transition.writes.splice(0, transition.writes.length, ...writes);
       transition.directions.splice(0, transition.directions.length, ...directions as Array<'L' | 'R' | 'S'>);
     } else if (transition instanceof MooreTransition) {
-      transition.label = lambda(value('edit-edge-label'));
-      if (machine instanceof MooreMachine) machine.setOutput(transition.to, lambda(value('edit-edge-output')));
+      if (!(machine instanceof MooreMachine)) throw new Error('Transition does not match the machine type.');
+      const automaton = machine;
+      automaton.setOutput(transition.to, lambda(value('edit-edge-output')));
+      const symbols = splitSymbols(value('edit-edge-label'));
+      const from = transition.from; const to = transition.to;
+      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof MooreTransition) automaton.removeTransition(item);
+      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol));
+      selectedTransition = rebuilt[0] ?? null;
     } else if (transition instanceof MealyTransition) {
-      transition.label = lambda(value('edit-edge-label'));
-      transition.setOutput(lambda(value('edit-edge-output')));
+      const output = lambda(value('edit-edge-output'));
+      const symbols = splitSymbols(value('edit-edge-label'));
+      const from = transition.from; const to = transition.to;
+      if (!(machine instanceof MealyMachine)) throw new Error('Transition does not match the machine type.');
+      const automaton = machine;
+      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof MealyTransition) automaton.removeTransition(item);
+      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol, output));
+      selectedTransition = rebuilt[0] ?? null;
     }
     render(); commitHistory(); setStatus('Transition updated.', 'success');
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update transition.', 'error'); }
