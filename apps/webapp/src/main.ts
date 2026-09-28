@@ -133,7 +133,6 @@ app.innerHTML = `
           <button class="button" id="step-back" title="Previous step">‹</button>
           <span class="step-position" id="step-position">0/0</span>
           <button class="button" id="step-forward" title="Next step">›</button>
-          <button class="text-button" id="step-reset">Reset</button>
         </div>
         <div id="stepper-view"></div>
       </section>
@@ -311,6 +310,16 @@ function restoreWorkspace(): boolean {
   } catch { return false; }
 }
 
+function refreshSimulations(): void {
+  stepperSession = null;
+  const input = $<HTMLInputElement>('#input-string').value;
+  const stepInput = $<HTMLInputElement>('#step-input').value;
+  if (input) runSimulation();
+  else $('#simulation-result').hidden = true;
+  if (stepInput) startStepping();
+  else renderStepper();
+}
+
 function activateTab(id: string): void {
   if (id === activeTabId && openTabs.length) return;
   const previous = activeTab();
@@ -330,6 +339,7 @@ function activateTab(id: string): void {
   $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
   if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
   renderTabs(); render(); updateHistoryButtons();
+  refreshSimulations();
   setStatus(`Switched to ${target.filename}.`);
   scheduleSave();
 }
@@ -423,6 +433,10 @@ function openTab(machineInstance: Machine, filename: string, tabId?: string): vo
   history = tab.history; historyIndex = 0;
   currentFilename = filename;
   selectedState = null; selectedTransition = null;
+  $<HTMLInputElement>('#input-string').value = '';
+  $<HTMLInputElement>('#step-input').value = '';
+  stepperSession = null;
+  $('#simulation-result').hidden = true;
   renderTabs();
   scheduleSave();
 }
@@ -433,6 +447,9 @@ function applyLoadedMachine(machineInstance: Machine, filename: string): void {
   selectedState = null; selectedTransition = null;
   setFilename(filename);
   renderTabs(); render(); commitHistory(); updateHistoryButtons();
+  $<HTMLInputElement>('#input-string').value = activeTab()?.input ?? '';
+  $<HTMLInputElement>('#step-input').value = activeTab()?.stepInput ?? '';
+  refreshSimulations();
 }
 
 function setFilename(filename: string): void {
@@ -966,7 +983,7 @@ function scheduleStep(immediate = false): void {
   if (immediate) startStepping();
   else steppingTimer = window.setTimeout(startStepping, 350);
 }
-let stepperSession: { machine: Machine; views: StepperView[]; accepted: boolean; index: number } | null = null;
+let stepperSession: { machine: Machine; views: StepperView[]; accepted: boolean; index: number; input: string } | null = null;
 
 function startStepping(): void {
   const input = ($('#step-input') as HTMLInputElement).value;
@@ -1003,7 +1020,7 @@ function startStepping(): void {
       accepted = run.outputs.length > 0;
     }
     if (!views.length) { setStatus('Add an initial state to step through the machine.', 'error'); return; }
-    stepperSession = { machine, views, accepted, index: 0 };
+    stepperSession = { machine, views, accepted, index: 0, input };
     renderStepper();
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not step through the input.', 'error'); }
 }
@@ -1024,7 +1041,10 @@ function renderStepper(): void {
   $('#step-forward').toggleAttribute('disabled', isLast);
   const note = isLast ? (accepted ? 'Accepted ✓' : 'Rejected ×') : step.note;
   const noteClass = isLast ? (accepted ? 'step-note step-accepted' : 'step-note step-rejected') : 'step-note';
-  region.innerHTML = `<div class="step-card"><span class="step-state-name">${escapeHtml(step.state.name)}</span><span class="step-remaining">rest: ${escapeHtml(step.remaining || 'λ')}</span><span class="${noteClass}">${escapeHtml(note)}</span></div>`;
+  const inputLine = stepperSession.machine instanceof TuringMachine
+    ? `<span class="step-remaining">tape: ${escapeHtml(step.remaining || '□')}</span>`
+    : `<span class="step-input-line"><span class="step-eaten">${escapeHtml(stepperSession.input.slice(0, stepperSession.input.length - step.remaining.length))}</span><span class="step-rest">${escapeHtml(step.remaining || 'λ')}</span></span>`;
+  region.innerHTML = `<div class="step-card"><span class="step-state-name">${escapeHtml(step.state.name)}</span>${inputLine}<span class="${noteClass}">${escapeHtml(note)}</span></div>`;
   controls.hidden = false;
   renderGraph();
 }
@@ -1293,7 +1313,6 @@ $('#step-input').addEventListener('input', () => scheduleStep());
 $('#step-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') scheduleStep(true); });
 $('#step-forward').addEventListener('click', () => { if (stepperSession && stepperSession.index < stepperSession.views.length - 1) { stepperSession.index++; renderStepper(); } });
 $('#step-back').addEventListener('click', () => { if (stepperSession && stepperSession.index > 0) { stepperSession.index--; renderStepper(); } });
-$('#step-reset').addEventListener('click', () => { stepperSession = null; renderStepper(); });
 $('#input-string').addEventListener('input', scheduleSave);
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });

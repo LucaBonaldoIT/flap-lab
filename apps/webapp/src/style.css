@@ -192,6 +192,9 @@ select { appearance: none; padding-right: 30px; }
 .step-card { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; padding: 8px 10px; border: 1px solid #2a332d; border-radius: 6px; background: #141a16; font: 10px var(--mono); }
 .step-state-name { color: #e6eee7; font-weight: 600; font-size: 12px; }
 .step-remaining { color: #97a49a; }
+.step-input-line { font-size: 13px; letter-spacing: .06em; }
+.step-eaten { color: #a3d98a; }
+.step-rest { color: #8d9a90; }
 .step-note { color: #6d7a70; }
 .step-accepted { color: #a3d98a; font-weight: 600; }
 .step-rejected { color: #f0a18c; font-weight: 600; }
