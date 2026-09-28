@@ -1244,6 +1244,7 @@ svg.addEventListener('pointerdown', (event) => {
   svg.classList.add('is-panning');
   svg.setPointerCapture(event.pointerId);
 }, true);
+$('#automaton-canvas').addEventListener('dblclick', (event) => event.preventDefault());
 $('#automaton-canvas').addEventListener('click', (event) => {
   if (suppressCanvasClick) { suppressCanvasClick = false; event.preventDefault(); return; }
   const target = event.target as Element;

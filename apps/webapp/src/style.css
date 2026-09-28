@@ -151,7 +151,7 @@ select { appearance: none; padding-right: 30px; }
 .state-initial .final-ring, .state-both .final-ring { stroke: var(--accent); }
 .state-name { fill: #edf3ee; font: 600 13px var(--mono); text-anchor: middle; pointer-events: none; }
 .state-sub-label { fill: #9bab9e; font: 9px var(--mono); text-anchor: middle; pointer-events: none; }
-.transition-panel { flex: 0 0 178px; max-height: 178px; border-top: 1px solid var(--line); background: #151a17; }
+.transition-panel { flex: 0 0 178px; max-height: 178px; border-top: 1px solid var(--line); background: #151a17; user-select: none; -webkit-user-select: none; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; height: 42px; padding: 0 18px; border-bottom: 1px solid #252d27; }
 .panel-heading > div { display: flex; align-items: center; gap: 8px; }
 .panel-count { display: grid; place-items: center; min-width: 17px; height: 17px; border-radius: 5px; background: #252e28; color: #a2afa4; font: 9px var(--mono); }
