@@ -187,6 +187,8 @@ const openTabs: OpenTab[] = [];
 let history: Machine[] = [];
 let historyIndex = 0;
 let canvasPan: { pointerId: number; clientX: number; clientY: number; viewX: number; viewY: number; moved: boolean } | null = null;
+const canvasPointers = new Map<number, { x: number; y: number }>();
+let canvasPinch: { dist: number; width: number; height: number; center: { x: number; y: number } } | null = null;
 let spacePanActive = false;
 let currentFilename = 'Untitled machine';
 
@@ -1221,7 +1223,21 @@ svg.addEventListener('pointerdown', (event) => {
   const target = event.target as Element;
   const onMachineItem = Boolean(target.closest('.state-node, .edge-path, .edge-hit-area, .edge-label'));
   const shouldPan = event.button === 1 || spacePanActive || (event.button === 0 && !onMachineItem && !addStateMode);
-  if (!shouldPan) return;
+  canvasPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (canvasPointers.size === 2) {
+    canvasPan = null; draggingState = null; dragMode = null;
+    svg.classList.remove('is-panning');
+    const [left, right] = [...canvasPointers.values()];
+    const view = svg.viewBox.baseVal;
+    canvasPinch = {
+      dist: Math.hypot(left!.x - right!.x, left!.y - right!.y) || 1,
+      width: view.width,
+      height: view.height,
+      center: screenToCanvas((left!.x + right!.x) / 2, (left!.y + right!.y) / 2),
+    };
+    return;
+  }
+  if (!shouldPan) { canvasPointers.delete(event.pointerId); return; }
   event.preventDefault(); event.stopPropagation();
   const view = svg.viewBox.baseVal;
   canvasPan = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, viewX: view.x, viewY: view.y, moved: false };
@@ -1237,6 +1253,15 @@ $('#automaton-canvas').addEventListener('click', (event) => {
   if (addStateMode) { $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding'); }
 });
 document.addEventListener('pointermove', (event) => {
+  if (canvasPointers.has(event.pointerId)) canvasPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (canvasPinch && canvasPointers.size >= 2) {
+    const [left, right] = [...canvasPointers.values()];
+    const factor = (Math.hypot(left!.x - right!.x, left!.y - right!.y) || 1) / canvasPinch.dist;
+    const width = Math.max(120, Math.min(5000, canvasPinch.width / factor));
+    const height = canvasPinch.height * width / canvasPinch.width;
+    setCanvasView(canvasPinch.center.x - width / 2, canvasPinch.center.y - height / 2, width, height);
+    return;
+  }
   if (canvasPan) {
     const dx = event.clientX - canvasPan.clientX; const dy = event.clientY - canvasPan.clientY;
     if (Math.hypot(dx, dy) > 2) canvasPan.moved = true;
@@ -1255,6 +1280,16 @@ document.addEventListener('pointermove', (event) => {
   renderGraph();
 });
 document.addEventListener('pointerup', (event) => {
+  if (canvasPinch) {
+    canvasPointers.delete(event.pointerId);
+    if (canvasPointers.size < 2) {
+      canvasPinch = null;
+      suppressCanvasClick = true;
+      window.setTimeout(() => { suppressCanvasClick = false; }, 0);
+    }
+    return;
+  }
+  canvasPointers.delete(event.pointerId);
   if (canvasPan && event.pointerId === canvasPan.pointerId) {
     if (canvasPan.moved) {
       suppressCanvasClick = true;
@@ -1379,3 +1414,9 @@ if (!restoreWorkspace()) {
 updateGridBackground();
 updateHistoryButtons();
 window.addEventListener('beforeunload', persistWorkspace);
+document.addEventListener('gesturestart', (event) => {
+  if ((event.target as Element).closest('.canvas-shell')) event.preventDefault();
+});
+document.addEventListener('gesturechange', (event) => {
+  if ((event.target as Element).closest('.canvas-shell')) event.preventDefault();
+});
