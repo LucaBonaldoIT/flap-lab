@@ -116,10 +116,23 @@ app.innerHTML = `
         </form>
       </section>
 
+      <section class="tool-section stepper-section">
+        <div class="section-heading"><span>STEP THROUGH</span></div>
+        <label class="field-label" for="step-input">Input string</label>
+        <input id="step-input" type="text" placeholder="Type input…" autocomplete="off" />
+        <div class="stepper-controls" id="stepper-controls" hidden>
+          <button class="button" id="step-back" title="Previous step">‹</button>
+          <span class="step-position" id="step-position">0/0</span>
+          <button class="button" id="step-forward" title="Next step">›</button>
+          <button class="text-button" id="step-reset">Reset</button>
+        </div>
+        <div id="stepper-view"></div>
+      </section>
+
       <section class="tool-section simulator-section">
         <div class="section-heading"><span>SIMULATE INPUT</span><span class="tool-number">02</span></div>
         <label class="field-label" for="input-string">Input string</label>
-        <div class="input-with-action"><input id="input-string" type="text" placeholder="Type input…" autocomplete="off" /><button id="run-machine" class="run-button" title="Run simulation">▶</button></div>
+        <input id="input-string" type="text" placeholder="Type input…" autocomplete="off" />
         <div class="simulator-options" id="simulator-options"></div>
         <div class="simulation-result" id="simulation-result" hidden></div>
       </section>
@@ -543,7 +556,7 @@ function renderGraph(): void {
     preview.setAttribute('d', `M ${dragStateOrigin.x} ${dragStateOrigin.y} L ${dragPointer.x} ${dragPointer.y}`);
     graphLayer.append(preview);
   }
-  for (const state of machine.states) renderState(state);
+  for (const state of machine.states) renderState(state, steppingState());
   for (const state of machine.states) if (machine.initialState === state) renderInitialArrow(state);
   $('#canvas-empty').classList.toggle('is-hidden', machine.states.length > 0);
   $('#canvas-coordinates').textContent = `${machine.states.length} ${machine.states.length === 1 ? 'state' : 'states'} · ${machine.transitions.length} ${machine.transitions.length === 1 ? 'transition' : 'transitions'}`;
@@ -589,10 +602,11 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   graphLayer.append(label);
 }
 
-function renderState(state: State): void {
+function renderState(state: State, stepping: State | null = null): void {
   const group = svgElement('g');
   group.classList.add('state-node');
   if (selectedState === state) group.classList.add('is-selected');
+  if (stepping === state) group.classList.add('is-stepping');
   if (moveModeState === state) group.classList.add('is-move-mode');
   if (stateClass(state)) group.classList.add(stateClass(state));
   group.dataset.stateId = String(state.id);
@@ -841,8 +855,13 @@ function addTransition(event: SubmitEvent): void {
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not add transition.', 'error'); }
 }
 
-function simulateInput(input: string): { success: boolean; result: string; output?: string } {
-  if (machine instanceof FiniteStateAutomaton) {
+function steppingState(): State | null {
+  if (!stepperSession) return null;
+  if (stepperSession.machine !== machine) { stepperSession = null; return null; }
+  return stepperSession.views[stepperSession.index]?.state ?? null;
+}
+
+function simulateInput(input: string): { success: boolean; result: string; output?: string } {  if (machine instanceof FiniteStateAutomaton) {
     return { success: new FSASimulator(machine).run(input).accepted, result: '' };
   }
   if (machine instanceof PushdownAutomaton) {
@@ -878,6 +897,85 @@ function renderSimulationTable(state: 'success' | 'mixed' | 'failure', title: st
   }).join('');
   result.innerHTML = `<div class="result-state"><span class="result-symbol">${state === 'failure' ? '×' : '✓'}</span><span>${escapeHtml(title)}</span></div><table class="result-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
   setStatus(title, state === 'success' ? 'success' : state === 'failure' ? 'error' : 'ready');
+}
+
+let simulationTimer = 0;
+let steppingTimer = 0;
+
+interface StepperView { state: State; remaining: string; note: string; }
+
+function scheduleRun(immediate = false): void {
+  window.clearTimeout(simulationTimer);
+  if (immediate) runSimulation();
+  else simulationTimer = window.setTimeout(runSimulation, 350);
+}
+
+function scheduleStep(immediate = false): void {
+  window.clearTimeout(steppingTimer);
+  if (immediate) startStepping();
+  else steppingTimer = window.setTimeout(startStepping, 350);
+}
+let stepperSession: { machine: Machine; views: StepperView[]; accepted: boolean; index: number } | null = null;
+
+function startStepping(): void {
+  const input = ($('#step-input') as HTMLInputElement).value;
+  try {
+    let views: StepperView[] = [];
+    let accepted = false;
+    if (machine instanceof FiniteStateAutomaton) {
+      const run = new FSASimulator(machine).run(input);
+      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: '' }));
+      accepted = run.accepted;
+    } else if (machine instanceof PushdownAutomaton) {
+      const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'empty-stack' | 'either' | undefined;
+      const initialStackSymbol = ($('#initial-stack') as HTMLInputElement | null)?.value ?? 'Z';
+      const run = new PDASimulator(machine, initialStackSymbol).run(input, acceptance ? { acceptance } : {});
+      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `stack: ${config.stack.join('') || 'empty'}` }));
+      accepted = run.accepted;
+    } else if (machine instanceof TuringMachine) {
+      const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'halting' | 'either' | undefined;
+      const maxSteps = Number(($('#step-limit') as HTMLInputElement | null)?.value ?? 1000);
+      const run = new TuringMachineSimulator(machine).run(input, acceptance ? { acceptance, maxSteps } : { maxSteps });
+      views = run.configurations.map((config) => {
+        const tape = config.tapes[0]!;
+        const text = Object.entries(tape.cells).sort(([a], [b]) => Number(a) - Number(b)).map(([, symbol]) => symbol).join('');
+        return { state: config.state, remaining: text || '□', note: `step ${config.steps} · head ${tape.head}` };
+      });
+      accepted = run.accepted;
+    } else if (machine instanceof MealyMachine) {
+      const run = new MealySimulator(machine).run(input);
+      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `output: ${config.output || '—'}` }));
+      accepted = run.outputs.length > 0;
+    } else if (machine instanceof MooreMachine) {
+      const run = new MooreSimulator(machine).run(input);
+      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `output: ${config.output || '—'}` }));
+      accepted = run.outputs.length > 0;
+    }
+    if (!views.length) { setStatus('Add an initial state to step through the machine.', 'error'); return; }
+    stepperSession = { machine, views, accepted, index: 0 };
+    renderStepper();
+  } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not step through the input.', 'error'); }
+}
+
+function renderStepper(): void {
+  const region = $('#stepper-view');
+  const controls = $('#stepper-controls');
+  if (!stepperSession || stepperSession.machine !== machine) {
+    stepperSession = null;
+    region.innerHTML = ''; controls.hidden = true;
+    return;
+  }
+  const { views, index, accepted } = stepperSession;
+  const step = views[index]!;
+  const isLast = index === views.length - 1;
+  $('#step-position').textContent = `${index + 1}/${views.length}`;
+  $('#step-back').toggleAttribute('disabled', index <= 0);
+  $('#step-forward').toggleAttribute('disabled', isLast);
+  const note = isLast ? (accepted ? 'Accepted ✓' : 'Rejected ×') : step.note;
+  const noteClass = isLast ? (accepted ? 'step-note step-accepted' : 'step-note step-rejected') : 'step-note';
+  region.innerHTML = `<div class="step-card"><span class="step-state-name">${escapeHtml(step.state.name)}</span><span class="step-remaining">rest: ${escapeHtml(step.remaining || 'λ')}</span><span class="${noteClass}">${escapeHtml(note)}</span></div>`;
+  controls.hidden = false;
+  renderGraph();
 }
 
 function runSimulation(): void {
@@ -1064,8 +1162,13 @@ svg.addEventListener('wheel', (event) => {
   setCanvasView(view.x + dx / scale, view.y + dy / scale);
 }, { passive: false });
 $('#transition-form').addEventListener('submit', addTransition);
-$('#run-machine').addEventListener('click', runSimulation);
-$('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') runSimulation(); });
+$('#input-string').addEventListener('input', () => scheduleRun());
+$('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') scheduleRun(true); });
+$('#step-input').addEventListener('input', () => scheduleStep());
+$('#step-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') scheduleStep(true); });
+$('#step-forward').addEventListener('click', () => { if (stepperSession && stepperSession.index < stepperSession.views.length - 1) { stepperSession.index++; renderStepper(); } });
+$('#step-back').addEventListener('click', () => { if (stepperSession && stepperSession.index > 0) { stepperSession.index--; renderStepper(); } });
+$('#step-reset').addEventListener('click', () => { stepperSession = null; renderStepper(); });
 $('#input-string').addEventListener('input', scheduleSave);
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });

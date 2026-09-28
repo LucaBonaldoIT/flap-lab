@@ -70,7 +70,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .field-label { display: block; margin-bottom: 6px; color: #99a59c; font-size: 10px; font-weight: 600; }
 .field-label span { color: #657168; font-weight: 400; }
 .select-wrap { position: relative; margin-bottom: 23px; }
-select, .control-input, .transition-field input, #input-string, .option-label input, .option-label select { width: 100%; height: 35px; border: 1px solid #303a32; border-radius: 6px; background: #111613; color: #d6ded8; padding: 0 10px; font-size: 11px; }
+select, .control-input, .transition-field input, #input-string, #step-input, .option-label input, .option-label select { width: 100%; height: 35px; border: 1px solid #303a32; border-radius: 6px; background: #111613; color: #d6ded8; padding: 0 10px; font-size: 11px; }
 select { appearance: none; padding-right: 30px; }
 .select-caret { position: absolute; top: 7px; right: 11px; color: #758178; pointer-events: none; }
 .machine-setting { margin: -12px 0 19px; }
@@ -172,17 +172,26 @@ select { appearance: none; padding-right: 30px; }
 .two-fields select { height: 32px; font-size: 10px; }
 .transition-fields { display: flex; flex-direction: column; gap: 9px; }
 .transition-field input { height: 32px; font: 11px var(--mono); }
-.transition-field input::placeholder, #input-string::placeholder { color: #556158; }
+.transition-field input::placeholder, #input-string::placeholder, #step-input::placeholder { color: #556158; }
 .field-help { display: block; margin-top: 4px; color: #627066; font-size: 9px; line-height: 1.4; }
 .button-add-transition { width: 100%; min-height: 33px; border-color: #7a3323; background: #39211b; color: #f0a18c; font-size: 10px; }
 .button-add-transition span { font-size: 15px; }
 .button-add-transition:hover { border-color: #b02e0c; background: #4a261d; }
 .simulator-section { border-bottom: 0; }
 .input-with-action { display: flex; gap: 6px; }
-#input-string { height: 37px; flex: 1; font: 12px var(--mono); }
-.run-button { width: 37px; height: 37px; flex: 0 0 37px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #17220f; font-size: 13px; cursor: pointer; }
-.run-button:hover { background: #ca4524; }
+#input-string, #step-input { height: 37px; flex: 1; font: 12px var(--mono); }
 .simulator-options { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; }
+.stepper-controls { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.stepper-controls .button { min-height: 26px; padding: 0 10px; font-size: 11px; }
+.step-position { min-width: 34px; color: #9aa69d; font: 9px var(--mono); text-align: center; }
+.step-card { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; padding: 8px 10px; border: 1px solid #2a332d; border-radius: 6px; background: #141a16; font: 10px var(--mono); }
+.step-state-name { color: #e6eee7; font-weight: 600; font-size: 12px; }
+.step-remaining { color: #97a49a; }
+.step-note { color: #6d7a70; }
+.step-accepted { color: #a3d98a; font-weight: 600; }
+.step-rejected { color: #f0a18c; font-weight: 600; }
+.state-node.is-stepping .state-circle { stroke: #e3c25c; stroke-width: 2.6; }
+.state-node.is-stepping .state-circle { fill: #2a2516; }
 .option-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #87948a; font-size: 9px; }
 .option-label select, .option-label input { width: 54%; height: 29px; padding: 0 7px; font-size: 9px; }
 .simulation-result { min-height: 69px; margin-top: 13px; padding: 10px; border: 1px solid #2c362f; border-radius: 7px; background: #131915; }
