@@ -77,7 +77,16 @@ app.innerHTML = `
             <button class="button button-small zoom-button" id="zoom-in" title="Zoom in">＋</button>
           </div>
           <button class="button button-small" id="fit-canvas" title="Fit automaton in view">Fit view</button>
-          <button class="button button-small" id="load-example" title="Load an example automaton">Example</button>
+          <div class="example-wrap">
+            <button class="button button-small" id="load-example" title="Load an example automaton">Example</button>
+            <div class="example-menu" id="example-menu" hidden>
+              <button data-type="fa">aⁿbc · finite-state</button>
+              <button data-type="pda">aⁿbⁿ · pushdown</button>
+              <button data-type="turing">aⁿbⁿ · Turing machine</button>
+              <button data-type="mealy">binary complement · Mealy</button>
+              <button data-type="moore">parity checker · Moore</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="canvas-shell" id="canvas-shell">
@@ -171,6 +180,8 @@ interface OpenTab {
   history: Machine[];
   historyIndex: number;
   viewBox: { x: number; y: number; width: number; height: number } | null;
+  input: string;
+  stepInput: string;
 }
 
 const openTabs: OpenTab[] = [];
@@ -229,6 +240,8 @@ function storeActiveTab(): void {
   if (!tab) return;
   tab.machine = machine; tab.selectedState = selectedState; tab.selectedTransition = selectedTransition;
   tab.history = history; tab.historyIndex = historyIndex;
+  tab.input = ($('#input-string') as HTMLInputElement).value;
+  tab.stepInput = ($('#step-input') as HTMLInputElement).value;
   const view = svg.viewBox.baseVal;
   tab.viewBox = { x: view.x, y: view.y, width: view.width, height: view.height };
 }
@@ -248,14 +261,13 @@ function isMachineStructure(value: JFLAPStructure): value is Machine {
 function persistWorkspace(): void {
   try {
     storeActiveTab();
-    const inputField = document.getElementById('input-string') as HTMLInputElement | null;
     const tabs = openTabs.map((tab) => {
-      const item: Record<string, unknown> = { id: tab.id, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox };
+      const item: Record<string, unknown> = { id: tab.id, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput };
       if (tab.machine instanceof PushdownAutomaton) { item.acceptanceMode = tab.machine.acceptanceMode; item.singleInput = tab.machine.singleInput; }
       else if (tab.machine instanceof TuringMachine) item.acceptanceMode = tab.machine.acceptanceMode;
       return item;
     });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, activeTabId, nextTab: tabCounter, input: inputField?.value ?? '', tabs }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, activeTabId, nextTab: tabCounter, tabs }));
   } catch {
     // Storage unavailable or full — session continues without persistence.
   }
@@ -265,7 +277,7 @@ function restoreWorkspace(): boolean {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
-    const payload = JSON.parse(raw) as { activeTabId?: string; nextTab?: number; input?: string; tabs?: Array<Record<string, unknown>> };
+    const payload = JSON.parse(raw) as { activeTabId?: string; nextTab?: number; tabs?: Array<Record<string, unknown>> };
     if (!Array.isArray(payload.tabs)) return false;
     for (const item of payload.tabs) {
       if (!item || typeof item.jff !== 'string' || typeof item.filename !== 'string' || typeof item.id !== 'string') continue;
@@ -281,9 +293,12 @@ function restoreWorkspace(): boolean {
         const numericId = Number(String(item.id).slice(4));
         if (Number.isFinite(numericId)) tabCounter = Math.max(tabCounter, numericId);
         openTab(structure, item.filename, String(item.id));
+        const restored = activeTab()!;
+        if (typeof item.input === 'string') restored.input = item.input;
+        if (typeof item.stepInput === 'string') restored.stepInput = item.stepInput;
         if (item.viewBox && typeof item.viewBox === 'object') {
           const view = item.viewBox as { x: number; y: number; width: number; height: number };
-          if ([view.x, view.y, view.width, view.height].every((value) => typeof value === 'number')) activeTab()!.viewBox = view;
+          if ([view.x, view.y, view.width, view.height].every((value) => typeof value === 'number')) restored.viewBox = view;
         }
       } catch { continue; }
     }
@@ -292,8 +307,6 @@ function restoreWorkspace(): boolean {
     activeTabId = '';
     activateTab(storedActive);
     if (Number.isFinite(payload.nextTab)) tabCounter = Math.max(tabCounter, Number(payload.nextTab));
-    const inputField = document.getElementById('input-string') as HTMLInputElement | null;
-    if (inputField && typeof payload.input === 'string') inputField.value = payload.input;
     return true;
   } catch { return false; }
 }
@@ -311,6 +324,9 @@ function activateTab(id: string): void {
   currentFilename = target.filename;
   draggingState = null; dragMode = null; dragMoved = false; canvasPan = null; addStateMode = false;
   moveModeState = null; moveModeEntryDrag = false;
+  stepperSession = null;
+  $<HTMLInputElement>('#input-string').value = target.input;
+  $<HTMLInputElement>('#step-input').value = target.stepInput;
   $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
   if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
   renderTabs(); render(); updateHistoryButtons();
@@ -395,6 +411,8 @@ function openTab(machineInstance: Machine, filename: string, tabId?: string): vo
     history: [],
     historyIndex: 0,
     viewBox: null,
+    input: '',
+    stepInput: '',
   };
   if (!tabId) tabCounter = Math.max(tabCounter, Number(tab.id.slice(4)) || 0);
   tab.history = [cloneAutomaton(tab.machine)];
@@ -1065,15 +1083,89 @@ function renderSimulationResult(success: boolean, title: string, detail: string)
   setStatus(title, success ? 'success' : 'error');
 }
 
-function loadExample(): void {
+function buildFaExample(): FiniteStateAutomaton {
   const example = new FiniteStateAutomaton();
   const q0 = example.createState({ x: 280, y: 300 }); q0.name = 'q0';
   const q1 = example.createState({ x: 500, y: 300 }); q1.name = 'q1';
   const q2 = example.createState({ x: 720, y: 300 }); q2.name = 'q2';
   example.setInitialState(q0); example.addFinalState(q2);
   example.transition(q0, q0, 'a'); example.transition(q0, q1, 'b'); example.transition(q1, q2, 'c');
-  applyLoadedMachine(example, 'example.jff');
-  render(); commitHistory(); setStatus('Loaded example: aⁿbc.'); showToast('Example automaton loaded');
+  return example;
+}
+
+function buildPdaExample(): PushdownAutomaton {
+  const pda = new PushdownAutomaton();
+  const q0 = pda.createState({ x: 340, y: 300 }); q0.name = 'q0';
+  const q1 = pda.createState({ x: 660, y: 300 }); q1.name = 'q1';
+  pda.setInitialState(q0); pda.addFinalState(q1);
+  pda.transition(q0, q0, 'a', '', 'A');
+  pda.transition(q0, q1, 'b', 'A', '');
+  pda.transition(q1, q1, 'b', 'A', '');
+  return pda;
+}
+
+function buildTuringExample(): TuringMachine {
+  const tm = new TuringMachine();
+  const q0 = tm.createState({ x: 240, y: 300 }); q0.name = 'q0';
+  const q1 = tm.createState({ x: 450, y: 180 }); q1.name = 'q1';
+  const q2 = tm.createState({ x: 450, y: 430 }); q2.name = 'q2';
+  const q3 = tm.createState({ x: 660, y: 300 }); q3.name = 'q3';
+  const q4 = tm.createState({ x: 870, y: 300 }); q4.name = 'q4';
+  tm.setInitialState(q0); tm.addFinalState(q4);
+  tm.transition(q0, q1, ['a'], ['X'], ['R']);
+  tm.transition(q0, q3, ['X'], ['X'], ['R']);
+  tm.transition(q0, q3, ['Y'], ['Y'], ['R']);
+  tm.transition(q1, q1, ['a'], ['a'], ['R']);
+  tm.transition(q1, q2, ['b'], ['Y'], ['L']);
+  tm.transition(q2, q2, ['a'], ['a'], ['L']);
+  tm.transition(q2, q2, ['Y'], ['Y'], ['L']);
+  tm.transition(q2, q0, ['X'], ['X'], ['R']);
+  tm.transition(q3, q3, ['Y'], ['Y'], ['R']);
+  tm.transition(q3, q4, [' '], [' '], ['R']);
+  return tm;
+}
+
+function buildMealyExample(): MealyMachine {
+  const mealy = new MealyMachine();
+  const q0 = mealy.createState({ x: 500, y: 300 }); q0.name = 'q0';
+  mealy.setInitialState(q0);
+  mealy.transition(q0, q0, '0', '1');
+  mealy.transition(q0, q0, '1', '0');
+  return mealy;
+}
+
+function buildMooreExample(): MooreMachine {
+  const moore = new MooreMachine();
+  const q0 = moore.createState({ x: 400, y: 300 }); q0.name = 'q0';
+  const q1 = moore.createState({ x: 640, y: 300 }); q1.name = 'q1';
+  moore.setInitialState(q0);
+  moore.setOutput(q0, '0');
+  moore.setOutput(q1, '1');
+  moore.transition(q0, q0, '0');
+  moore.transition(q0, q1, '1');
+  moore.transition(q1, q1, '0');
+  moore.transition(q1, q0, '1');
+  return moore;
+}
+
+const EXAMPLES: Record<MachineType, { filename: string; title: string; input: string; stepInput: string; build: () => Machine }> = {
+  fa: { filename: 'example-anbc.jff', title: 'aⁿbc', input: 'abc, aac, cba', stepInput: 'abc', build: buildFaExample },
+  pda: { filename: 'example-anbn-pda.jff', title: 'aⁿbⁿ (pushdown)', input: 'ab, aabb, abb', stepInput: 'aabb', build: buildPdaExample },
+  turing: { filename: 'example-anbn-turing.jff', title: 'aⁿbⁿ (Turing machine)', input: 'ab, aabb, aab', stepInput: 'aabb', build: buildTuringExample },
+  mealy: { filename: 'example-complement-mealy.jff', title: 'binary complement (Mealy)', input: '0110, 1001', stepInput: '0110', build: buildMealyExample },
+  moore: { filename: 'example-parity-moore.jff', title: 'parity checker (Moore)', input: '101, 100', stepInput: '101', build: buildMooreExample },
+};
+
+function loadExample(type: MachineType): void {
+  const entry = EXAMPLES[type];
+  applyLoadedMachine(entry.build(), entry.filename);
+  $<HTMLInputElement>('#input-string').value = entry.input;
+  $<HTMLInputElement>('#step-input').value = entry.stepInput;
+  stepperSession = null;
+  runSimulation();
+  startStepping();
+  applyLoadedMachine(entry.build(), entry.filename);
+  setStatus(`Loaded example: ${entry.title}.`); showToast('Example machine loaded');
 }
 
 function openJff(file: File): void {
@@ -1206,7 +1298,17 @@ $('#input-string').addEventListener('input', scheduleSave);
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });
 $('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
-$('#load-example').addEventListener('click', loadExample);
+$('#load-example').addEventListener('click', (event) => { event.stopPropagation(); $('#example-menu').hidden = !$('#example-menu').hidden; });
+$('#example-menu').addEventListener('click', (event) => {
+  const button = (event.target as Element).closest('button[data-type]');
+  if (!button) return;
+  $('#example-menu').hidden = true;
+  loadExample(button.getAttribute('data-type') as MachineType);
+});
+document.addEventListener('click', (event) => {
+  const menu = $('#example-menu');
+  if (!menu.hidden && !(event.target as Element).closest('.example-wrap')) menu.hidden = true;
+});
 $('#zoom-in').addEventListener('click', () => zoomAt(1.2));
 $('#zoom-out').addEventListener('click', () => zoomAt(1 / 1.2));
 $('#fit-canvas').addEventListener('click', () => {

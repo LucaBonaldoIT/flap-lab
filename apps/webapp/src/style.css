@@ -116,6 +116,11 @@ select { appearance: none; padding-right: 30px; }
 .canvas-title strong { display: block; color: #d3dbd5; font: 600 12px var(--display); }
 .canvas-title div span { display: block; margin-top: 3px; color: #718075; font-size: 9px; }
 .canvas-tools { display: flex; gap: 7px; }
+.example-wrap { position: relative; }
+.example-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px; min-width: 210px; padding: 6px; border: 1px solid #303a32; border-radius: 8px; background: #151b17; box-shadow: 0 12px 34px #0008; }
+.example-menu[hidden] { display: none; }
+.example-menu button { padding: 8px 11px; border: 0; border-radius: 5px; background: transparent; color: #b9c4bb; font: 11px var(--mono); text-align: left; cursor: pointer; }
+.example-menu button:hover { background: #232c26; color: #eef5ee; }
 .zoom-controls { display: flex; align-items: center; gap: 3px; height: 29px; padding: 0 4px; border: 1px solid #303a32; border-radius: 6px; background: #151b17; }
 .zoom-button { width: 27px; min-width: 27px; height: 25px; min-height: 25px; padding: 0; border-color: transparent; background: transparent; font-size: 15px; }
 .zoom-level { min-width: 40px; color: #9aa69d; font: 9px var(--mono); text-align: center; }
