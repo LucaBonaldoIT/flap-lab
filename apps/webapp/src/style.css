@@ -234,6 +234,9 @@ select { appearance: none; padding-right: 30px; }
 .toast { padding: 10px 13px; border: 1px solid #44533f; border-radius: 7px; background: #1d281b; box-shadow: 0 8px 30px #0006; color: #c6e5b0; font-size: 10px; animation: toast-in .18s ease-out; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
+@media (pointer: coarse) {
+  select, .control-input, .transition-field input, #input-string, #step-input, .option-label input, .option-label select { font-size: 16px; }
+}
 @media (max-width: 1050px) {
   body { overflow: auto; }
   .workspace { grid-template-columns: 220px minmax(350px, 1fr); }

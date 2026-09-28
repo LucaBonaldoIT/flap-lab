@@ -847,8 +847,17 @@ function createBlankTransition(from: State, to: State): void {
   setStatus('Transition created. Add its label in the selected-transition editor.', 'success');
 }
 
+function applyTextInputAttributes(): void {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[type="text"], input:not([type])')) {
+    input.setAttribute('autocapitalize', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('spellcheck', 'false');
+  }
+}
+
 function render(): void {
   renderStateSelectors(); renderTransitionFields(); renderSimulatorOptions(); renderMachineSettings(); renderStateList(); renderStateEditor(); renderSelectedTransitionEditor(); renderTransitions(); renderGraph();
+  applyTextInputAttributes();
   $<HTMLSelectElement>('#machine-type').value = machineType(machine);
   $('#canvas-subtitle').textContent = addStateMode ? 'Click anywhere on the canvas to place a state' : 'Click empty canvas to add a state · drag or scroll to pan · drag node to connect · Alt-drag or double-click to move';
 }
