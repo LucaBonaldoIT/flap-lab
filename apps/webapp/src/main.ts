@@ -146,7 +146,10 @@ app.innerHTML = `
       <section class="tool-section simulator-section">
         <div class="section-heading"><span>SIMULATE INPUT</span><span class="tool-number">02</span></div>
         <label class="field-label" for="input-string">Input string</label>
-        <input id="input-string" type="text" placeholder="Type input…" autocomplete="off" />
+        <div class="input-ghost-wrap">
+          <div class="input-ghost-mirror" id="input-ghost" aria-hidden="true"></div>
+          <input id="input-string" type="text" placeholder="Type input…" autocomplete="off" />
+        </div>
         <div class="simulator-options" id="simulator-options"></div>
         <div class="simulation-result" id="simulation-result" hidden></div>
       </section>
@@ -245,7 +248,10 @@ function restoreHistory(index: number): void {
   scheduleSave();
 }
 
+let restoringWorkspace = false;
+
 function storeActiveTab(): void {
+  if (restoringWorkspace) return;
   const tab = activeTab();
   if (!tab) return;
   tab.machine = machine; tab.selectedState = selectedState; tab.selectedTransition = selectedTransition;
@@ -298,6 +304,7 @@ function persistWorkspace(): void {
 
 function restoreWorkspace(): boolean {
   try {
+    restoringWorkspace = true;
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     const payload = JSON.parse(raw) as { activeTabId?: string; nextTab?: number; tabs?: Array<Record<string, unknown>> };
@@ -350,10 +357,12 @@ function restoreWorkspace(): boolean {
     if (Number.isFinite(payload.nextTab)) tabCounter = Math.max(tabCounter, Number(payload.nextTab));
     return true;
   } catch { return false; }
+  finally { restoringWorkspace = false; }
 }
 
 function refreshSimulations(): void {
   stepperSession = null;
+  updateInputSuggestion();
   if (isTextMode() || activeTab()?.kind === 'start') {
     $('#simulation-result').hidden = true;
     renderStepper();
@@ -1342,15 +1351,53 @@ function renderStepper(): void {
   renderGraph();
 }
 
+let inputSuggestion: { start: number; completion: string } | null = null;
+
+function updateInputSuggestion(): void {
+  const field = $<HTMLInputElement>('#input-string');
+  const mirror = document.getElementById('input-ghost');
+  inputSuggestion = null;
+  let ghost = '';
+  const value = field.value;
+  const caret = field.selectionStart ?? value.length;
+  if (caret === value.length) {
+    const boundary = Math.max(value.lastIndexOf(','), value.lastIndexOf('#'), value.lastIndexOf('\n'));
+    const at = value.lastIndexOf('@');
+    if (at > boundary && at < caret) {
+      const token = value.slice(at + 1, caret);
+      if (!token.includes(' ')) {
+        const candidates = loadRecents().filter((item) => item.kind === 'text');
+        const match = token ? candidates.find((item) => item.name.toLowerCase().startsWith(token.toLowerCase())) : candidates[0];
+        if (match) {
+          const completion = match.name.slice(token.length);
+          if (completion) { inputSuggestion = { start: caret, completion }; ghost = completion; }
+        }
+      }
+    }
+  }
+  if (mirror) mirror.innerHTML = inputSuggestion ? `<span class="ghost-hidden">${escapeHtml(value.slice(0, caret))}</span><span class="ghost-rest">${escapeHtml(inputSuggestion.completion)}</span>` : '';
+}
+
+function completeInputSuggestion(): void {
+  const field = $<HTMLInputElement>('#input-string');
+  if (!inputSuggestion) return;
+  const start = inputSuggestion.start;
+  field.value = field.value.slice(0, start) + inputSuggestion.completion;
+  const position = start + inputSuggestion.completion.length;
+  field.setSelectionRange(position, position);
+  inputSuggestion = null;
+  updateInputSuggestion();
+}
+
 function resolveSimulateInputs(raw: string, depth = 0): string[] {
   if (depth > 5) throw new Error('@file references are nested too deeply.');
-  const cleaned = raw.split('\n').map((line) => line.split('#')[0]).join(',');
+  const cleaned = raw.split('\n').map((line) => line.split('#')[0]).join('');
   const result: string[] = [];
   for (const part of cleaned.split(',')) {
     const token = part.trim();
     if (token.startsWith('@')) {
       const name = token.slice(1).trim();
-      if (!name) throw new Error('@ reference is missing a file name.');
+      if (!name) continue;
       const entry = loadRecents().find((item) => item.kind === 'text' && item.name.toLowerCase() === name.toLowerCase());
       if (!entry) throw new Error(`Referenced file "${token}" not found. Open it once so it can be used.`);
       result.push(...resolveSimulateInputs(entry.data, depth + 1));
@@ -1682,8 +1729,16 @@ svg.addEventListener('wheel', (event) => {
   setCanvasView(view.x + dx / scale, view.y + dy / scale);
 }, { passive: false });
 $('#transition-form').addEventListener('submit', addTransition);
-$('#input-string').addEventListener('input', () => scheduleRun());
-$('#input-string').addEventListener('keydown', (event) => { if (event.key === 'Enter') scheduleRun(true); });
+$('#input-string').addEventListener('input', () => { updateInputSuggestion(); scheduleRun(); });
+$('#input-string').addEventListener('keydown', (event) => {
+  if (inputSuggestion && (event.key === 'Tab' || event.key === 'Enter')) {
+    event.preventDefault();
+    completeInputSuggestion();
+    scheduleRun(true);
+    return;
+  }
+  if (event.key === 'Enter') scheduleRun(true);
+});
 $('#step-input').addEventListener('input', () => scheduleStep());
 $('#step-input').addEventListener('keydown', (event) => { if (event.key === 'Enter') scheduleStep(true); });
 $('#step-forward').addEventListener('click', () => { if (stepperSession && stepperSession.index < stepperSession.views.length - 1) { stepperSession.index++; renderStepper(); } });

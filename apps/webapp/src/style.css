@@ -221,6 +221,10 @@ select { appearance: none; padding-right: 30px; }
 .simulator-section { border-bottom: 0; }
 .input-with-action { display: flex; gap: 6px; }
 #input-string, #step-input { height: 37px; flex: 1; font: 12px var(--mono); }
+.input-ghost-wrap { position: relative; }
+.input-ghost-mirror { position: absolute; top: 50%; left: 11px; right: 11px; transform: translateY(-50%); display: flex; align-items: center; overflow: hidden; font: 12px var(--mono); color: #556158; pointer-events: none; white-space: pre; }
+.ghost-hidden { visibility: hidden; white-space: pre; }
+.ghost-rest { white-space: pre; color: #556158; }
 .simulator-options { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; }
 .stepper-controls { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 .stepper-controls .button { min-height: 26px; padding: 0 10px; font-size: 11px; }
@@ -271,7 +275,7 @@ select { appearance: none; padding-right: 30px; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (pointer: coarse) {
-  select, .control-input, .transition-field input, #input-string, #step-input, .option-label input, .option-label select { font-size: 16px; }
+  select, .control-input, .transition-field input, #input-string, #step-input, .option-label input, .option-label select, .input-ghost-mirror { font-size: 16px; }
 }
 @media (max-width: 1050px) {
   body { overflow: auto; }
