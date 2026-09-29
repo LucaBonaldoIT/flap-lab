@@ -138,6 +138,11 @@ select { appearance: none; padding-right: 30px; }
 .edge-path.is-selected { stroke: var(--accent); stroke-width: 2.2; }
 .edge-hit-area { fill: none; stroke: transparent; stroke-width: 18px; pointer-events: stroke; cursor: pointer; }
 .edge-preview { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; pointer-events: none; opacity: .8; }
+.edge-path.is-step-incoming { stroke: #a3d98a; stroke-width: 2.6; }
+.edge-path.is-step-outgoing { stroke: #e3c25c; stroke-width: 2.6; stroke-dasharray: 6 4; }
+.edge-path.is-step-outgoing:hover, .edge-path.is-step-incoming:hover { stroke: #d3ded5; stroke-width: 3; }
+.edge-label.is-step-incoming { fill: #a3d98a; }
+.edge-label.is-step-outgoing { fill: #e3c25c; }
 .edge-label { fill: #c7d0c8; font: 12px var(--mono); text-anchor: middle; paint-order: stroke; stroke: #111613; stroke-width: 6px; stroke-linejoin: round; cursor: pointer; }
 .edge-label.is-selected { fill: var(--accent); }
 .initial-arrow { fill: none; stroke: var(--accent); stroke-width: 1.8; }

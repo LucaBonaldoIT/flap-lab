@@ -94,6 +94,8 @@ app.innerHTML = `
           <defs>
             <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#6f665c" /></marker>
             <marker id="arrowhead-selected" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#b02e0c" /></marker>
+            <marker id="arrowhead-step-incoming" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#a3d98a" /></marker>
+            <marker id="arrowhead-step-outgoing" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#e3c25c" /></marker>
             <marker id="start-arrow" markerWidth="10" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L9,4 L0,8 z" fill="#b02e0c" /></marker>
           </defs>
           <g id="graph-layer"></g>
@@ -607,7 +609,11 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   const path = svgElement('path');
   path.classList.add('edge-path');
   if (groupIsSelected) path.classList.add('is-selected');
-  path.setAttribute('marker-end', groupIsSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead)');
+  const pairKey = `${transition.from.id}:${transition.to.id}`;
+  if (stepIncomingKeys.has(pairKey)) path.classList.add('is-step-incoming');
+  if (stepOutgoingKeys.has(pairKey)) path.classList.add('is-step-outgoing');
+  const marker = groupIsSelected ? 'url(#arrowhead-selected)' : stepIncomingKeys.has(pairKey) ? 'url(#arrowhead-step-incoming)' : stepOutgoingKeys.has(pairKey) ? 'url(#arrowhead-step-outgoing)' : 'url(#arrowhead)';
+  path.setAttribute('marker-end', marker);
   let labelX: number; let labelY: number;
   if (transition.from === transition.to) {
     path.setAttribute('d', `M ${from.x - 22} ${from.y - 29} C ${from.x - 82} ${from.y - 112}, ${from.x + 82} ${from.y - 112}, ${from.x + 22} ${from.y - 29}`);
@@ -634,6 +640,8 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   const label = svgElement('text');
   label.classList.add('edge-label'); label.setAttribute('x', String(labelX)); label.setAttribute('y', String(labelY));
   if (groupIsSelected) label.classList.add('is-selected');
+  if (stepIncomingKeys.has(pairKey)) label.classList.add('is-step-incoming');
+  if (stepOutgoingKeys.has(pairKey)) label.classList.add('is-step-outgoing');
   label.textContent = groupedTransitions.map(transitionLabel).join(', ');
   label.addEventListener('click', (event) => { event.stopPropagation(); selectTransition(selectionTarget); });
   graphLayer.append(label);
@@ -981,7 +989,20 @@ function renderSimulationTable(state: 'success' | 'mixed' | 'failure', title: st
 let simulationTimer = 0;
 let steppingTimer = 0;
 
-interface StepperView { state: State; remaining: string; note: string; }
+interface StepperView { state: State; remaining: string; note: string; fromState: State | null; outgoing: Transition[]; }
+const stepIncomingKeys = new Set<string>();
+const stepOutgoingKeys = new Set<string>();
+
+function symbolRangeMatches(label: string, next: string): boolean {
+  const range = /^\[(.)-(.)\]$/u.exec(label);
+  return Boolean(range && next >= range[1]! && next <= range[2]!);
+}
+
+function tmReadMatchesSymbol(symbol: string, value: string | undefined): boolean {
+  if (symbol === '~') return true;
+  if (symbol.startsWith('!')) return value !== symbol.slice(1);
+  return value === symbol;
+}
 
 function scheduleRun(immediate = false): void {
   window.clearTimeout(simulationTimer);
@@ -1002,32 +1023,98 @@ function startStepping(): void {
     let views: StepperView[] = [];
     let accepted = false;
     if (machine instanceof FiniteStateAutomaton) {
-      const run = new FSASimulator(machine).run(input);
-      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: '' }));
+      const automaton = machine;
+      const run = new FSASimulator(automaton).run(input);
+      let previous: State | null = null;
+      views = run.configurations.map((config) => {
+        const next = config.remaining[0];
+        const view: StepperView = {
+          state: config.state,
+          remaining: config.remaining,
+          note: '',
+          fromState: previous,
+          outgoing: automaton.transitions.filter((transition) => transition.from === config.state && (transition.label === '' || (next !== undefined && (transition.label === next || symbolRangeMatches(transition.label, next))))),
+        };
+        previous = config.state;
+        return view;
+      });
       accepted = run.accepted;
     } else if (machine instanceof PushdownAutomaton) {
+      const automaton = machine;
       const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'empty-stack' | 'either' | undefined;
       const initialStackSymbol = ($('#initial-stack') as HTMLInputElement | null)?.value ?? 'Z';
-      const run = new PDASimulator(machine, initialStackSymbol).run(input, acceptance ? { acceptance } : {});
-      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `stack: ${config.stack.join('') || 'empty'}` }));
+      const run = new PDASimulator(automaton, initialStackSymbol).run(input, acceptance ? { acceptance } : {});
+      let previous: State | null = null;
+      views = run.configurations.map((config) => {
+        const stackText = config.stack.join('');
+        const next = config.remaining[0];
+        const view: StepperView = {
+          state: config.state,
+          remaining: config.remaining,
+          note: `stack: ${stackText || 'empty'}`,
+          fromState: previous,
+          outgoing: automaton.transitions.filter((transition) => transition.from === config.state && (transition.input === '' || (next !== undefined && transition.input === next)) && (transition.pop === '' || stackText.startsWith(transition.pop))),
+        };
+        previous = config.state;
+        return view;
+      });
       accepted = run.accepted;
     } else if (machine instanceof TuringMachine) {
+      const automaton = machine;
       const acceptance = ($('#acceptance-mode') as HTMLSelectElement | null)?.value as 'final-state' | 'halting' | 'either' | undefined;
       const maxSteps = Number(($('#step-limit') as HTMLInputElement | null)?.value ?? 1000);
-      const run = new TuringMachineSimulator(machine).run(input, acceptance ? { acceptance, maxSteps } : { maxSteps });
+      const run = new TuringMachineSimulator(automaton).run(input, acceptance ? { acceptance, maxSteps } : { maxSteps });
+      let previous: State | null = null;
       views = run.configurations.map((config) => {
         const tape = config.tapes[0]!;
         const text = Object.entries(tape.cells).sort(([a], [b]) => Number(a) - Number(b)).map(([, symbol]) => symbol).join('');
-        return { state: config.state, remaining: text || '□', note: `step ${config.steps} · head ${tape.head}` };
+        const view: StepperView = {
+          state: config.state,
+          remaining: text || '□',
+          note: `step ${config.steps} · head ${tape.head}`,
+          fromState: previous,
+          outgoing: automaton.transitions.filter((transition) => transition.from === config.state && transition.reads.every((symbol, index) => {
+            const stepTape = config.tapes[index]!;
+            return tmReadMatchesSymbol(symbol, stepTape.cells[stepTape.head] ?? ' ');
+          })),
+        };
+        previous = config.state;
+        return view;
       });
       accepted = run.accepted;
     } else if (machine instanceof MealyMachine) {
-      const run = new MealySimulator(machine).run(input);
-      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `output: ${config.output || '—'}` }));
+      const automaton = machine;
+      const run = new MealySimulator(automaton).run(input);
+      let previous: State | null = null;
+      views = run.configurations.map((config) => {
+        const next = config.remaining[0];
+        const view: StepperView = {
+          state: config.state,
+          remaining: config.remaining,
+          note: `output: ${config.output || '—'}`,
+          fromState: previous,
+          outgoing: automaton.transitions.filter((transition) => transition.from === config.state && (transition.label === '' || (next !== undefined && (transition.label === next || symbolRangeMatches(transition.label, next))))),
+        };
+        previous = config.state;
+        return view;
+      });
       accepted = run.outputs.length > 0;
     } else if (machine instanceof MooreMachine) {
-      const run = new MooreSimulator(machine).run(input);
-      views = run.configurations.map((config) => ({ state: config.state, remaining: config.remaining, note: `output: ${config.output || '—'}` }));
+      const automaton = machine;
+      const run = new MooreSimulator(automaton).run(input);
+      let previous: State | null = null;
+      views = run.configurations.map((config) => {
+        const next = config.remaining[0];
+        const view: StepperView = {
+          state: config.state,
+          remaining: config.remaining,
+          note: `output: ${config.output || '—'}`,
+          fromState: previous,
+          outgoing: automaton.transitions.filter((transition) => transition.from === config.state && (transition.label === '' || (next !== undefined && (transition.label === next || symbolRangeMatches(transition.label, next))))),
+        };
+        previous = config.state;
+        return view;
+      });
       accepted = run.outputs.length > 0;
     }
     if (!views.length) { setStatus('Add an initial state to step through the machine.', 'error'); return; }
@@ -1041,12 +1128,16 @@ function renderStepper(): void {
   const controls = $('#stepper-controls');
   if (!stepperSession || stepperSession.machine !== machine) {
     stepperSession = null;
+    stepIncomingKeys.clear(); stepOutgoingKeys.clear();
     region.innerHTML = ''; controls.hidden = true;
     return;
   }
   const { views, index, accepted } = stepperSession;
   const step = views[index]!;
   const isLast = index === views.length - 1;
+  stepIncomingKeys.clear(); stepOutgoingKeys.clear();
+  if (index > 0) stepIncomingKeys.add(`${views[index - 1]!.state.id}:${step.state.id}`);
+  for (const transition of step.outgoing) stepOutgoingKeys.add(`${transition.from.id}:${transition.to.id}`);
   $('#step-position').textContent = `${index + 1}/${views.length}`;
   $('#step-back').toggleAttribute('disabled', index <= 0);
   $('#step-forward').toggleAttribute('disabled', isLast);
