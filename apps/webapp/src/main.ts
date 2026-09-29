@@ -45,6 +45,9 @@ app.innerHTML = `
   </header>
 
   <main class="workspace">
+    <div class="start-overlay" id="start-overlay" hidden>
+      <div class="start-menu" id="start-menu"></div>
+    </div>
     <textarea id="text-editor" hidden spellcheck="false" placeholder="Type anything…"></textarea>
     <aside class="sidebar left-sidebar">
       <div class="sidebar-heading"><span class="eyebrow">WORKSPACE</span><span class="machine-count" id="machine-count">0 states</span></div>
@@ -153,20 +156,6 @@ app.innerHTML = `
   </main>
   <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> MADE BY <a href="https://github.com/LucaBonaldoIT">LUCA BONALDO</a></span></footer>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
-  <div class="start-overlay" id="start-overlay" hidden>
-    <div class="start-menu">
-      <div class="start-logo">F</div>
-      <div class="start-title">Flap Lab</div>
-      <button class="start-action" id="start-new-file" type="button"><span class="start-icon">＋</span> New file</button>
-      <div class="start-new-choices" id="start-new-choices">
-        <button class="start-action start-sub" id="start-new-automaton" type="button">Automaton (.jff)</button>
-        <button class="start-action start-sub" id="start-new-text" type="button">Text file (.txt)</button>
-      </div>
-      <button class="start-action" id="start-open" type="button"><span class="start-icon">↧</span> Open file</button>
-      <div class="start-section-label">RECENTS</div>
-      <div class="start-recents" id="start-recents"></div>
-    </div>
-  </div>
 `;
 
 let machine: Machine = new FiniteStateAutomaton();
@@ -189,7 +178,7 @@ let tabCounter = 0;
 
 interface OpenTab {
   id: string;
-  kind: 'automaton' | 'text';
+  kind: 'automaton' | 'text' | 'start';
   filename: string;
   machine: Machine;
   selectedState: State | null;
@@ -200,6 +189,7 @@ interface OpenTab {
   input: string;
   stepInput: string;
   text: string;
+  recentKey?: string;
 }
 
 const openTabs: OpenTab[] = [];
@@ -283,7 +273,7 @@ function persistWorkspace(): void {
   try {
     storeActiveTab();
     const tabs = openTabs.map((tab) => {
-      const item: Record<string, unknown> = { id: tab.id, kind: tab.kind, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput, text: tab.text };
+      const item: Record<string, unknown> = { id: tab.id, kind: tab.kind, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput, text: tab.text, recentKey: tab.recentKey };
       if (tab.machine instanceof PushdownAutomaton) { item.acceptanceMode = tab.machine.acceptanceMode; item.singleInput = tab.machine.singleInput; }
       else if (tab.machine instanceof TuringMachine) item.acceptanceMode = tab.machine.acceptanceMode;
       return item;
@@ -310,6 +300,13 @@ function restoreWorkspace(): boolean {
           const restored = activeTab()!;
           if (typeof item.input === 'string') restored.input = item.input;
           if (typeof item.stepInput === 'string') restored.stepInput = item.stepInput;
+          if (typeof item.recentKey === 'string') restored.recentKey = item.recentKey;
+          continue;
+        }
+        if (item.kind === 'start') {
+          const numericId = Number(String(item.id).slice(4));
+          if (Number.isFinite(numericId)) tabCounter = Math.max(tabCounter, numericId);
+          openStartTab(String(item.id));
           continue;
         }
         if (typeof item.jff !== 'string') continue;
@@ -327,6 +324,7 @@ function restoreWorkspace(): boolean {
         const restored = activeTab()!;
         if (typeof item.input === 'string') restored.input = item.input;
         if (typeof item.stepInput === 'string') restored.stepInput = item.stepInput;
+        if (typeof item.recentKey === 'string') restored.recentKey = item.recentKey;
         if (item.viewBox && typeof item.viewBox === 'object') {
           const view = item.viewBox as { x: number; y: number; width: number; height: number };
           if ([view.x, view.y, view.width, view.height].every((value) => typeof value === 'number')) restored.viewBox = view;
@@ -344,7 +342,7 @@ function restoreWorkspace(): boolean {
 
 function refreshSimulations(): void {
   stepperSession = null;
-  if (activeTab()?.kind === 'text') {
+  if (isTextMode() || activeTab()?.kind === 'start') {
     $('#simulation-result').hidden = true;
     renderStepper();
     return;
@@ -380,21 +378,76 @@ function addRecent(entry: { name: string; kind: 'automaton' | 'text'; data: stri
   } catch { /* ignore */ }
 }
 
+let startMenuView: 'main' | 'new' | 'all' = 'main';
+
+function formatRecentTime(at: number): string {
+  return new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function recentButton(item: RecentFile, index: number): string {
+  return `<button class="start-recent" data-index="${index}" type="button"><span class="start-recent-kind">${item.kind === 'text' ? 'TXT' : 'JFF'}</span><span class="start-recent-name">${escapeHtml(item.name)}</span><span class="start-recent-time">${formatRecentTime(item.at)}</span></button>`;
+}
+
 function renderStartMenu(): void {
-  const region = $('#start-recents');
+  const menu = $('#start-menu');
   const recents = loadRecents();
-  const items = recents.map((item, index) => `<button class="start-recent" data-index="${index}" type="button"><span class="start-recent-kind">${item.kind === 'text' ? 'TXT' : 'JFF'}</span><span class="start-recent-name">${escapeHtml(item.name)}</span></button>`).join('');
-  region.innerHTML = items || '<div class="start-recents-empty">No recent files yet</div>';
+  if (startMenuView === 'new') {
+    menu.innerHTML = `
+      <button class="start-back" data-view="main" type="button">‹ Back</button>
+      <div class="start-title">New file</div>
+      <button class="start-action" data-action="new-automaton" type="button"><span class="start-icon">◧</span> Automaton (.jff)</button>
+      <button class="start-action" data-action="new-text" type="button"><span class="start-icon">≡</span> Text file (.txt)</button>`;
+    return;
+  }
+  if (startMenuView === 'all') {
+    menu.innerHTML = `
+      <button class="start-back" data-view="main" type="button">‹ Back</button>
+      <div class="start-title">All files</div>
+      ${recents.map((item, index) => recentButton(item, index)).join('') || '<div class="start-recents-empty">No recent files yet</div>'}
+      ${recents.length ? '<button class="start-clear" data-action="clear-recents" type="button">Clear all files</button>' : ''}`;
+    return;
+  }
+  menu.innerHTML = `
+    <div class="start-logo">F</div>
+    <div class="start-title">Flap Lab</div>
+    <button class="start-action" data-action="new" type="button"><span class="start-icon">＋</span> New file</button>
+    <button class="start-action" data-action="open" type="button"><span class="start-icon">↧</span> Open file</button>
+    <div class="start-section-label">RECENTS</div>
+    ${recents.slice(0, 3).map((item, index) => recentButton(item, index)).join('') || '<div class="start-recents-empty">No recent files yet</div>'}
+    ${recents.length > 3 ? '<button class="start-see-all" data-view="all" type="button">See all</button>' : ''}`;
 }
 
-function showStartMenu(): void {
-  renderStartMenu();
-  $('#start-overlay').hidden = false;
-}
-
-function hideStartMenu(): void {
-  $('#start-overlay').hidden = true;
-  $('#start-new-choices').classList.remove('is-open');
+function openStartTab(tabId?: string): void {
+  const tab: OpenTab = {
+    id: tabId ?? `tab-${++tabCounter}`,
+    kind: 'start',
+    filename: 'New file',
+    machine: new FiniteStateAutomaton(),
+    selectedState: null,
+    selectedTransition: null,
+    history: [],
+    historyIndex: 0,
+    viewBox: null,
+    input: '',
+    stepInput: '',
+    text: '',
+  };
+  if (!tabId) tabCounter = Math.max(tabCounter, Number(tab.id.slice(4)) || 0);
+  tab.history = [cloneAutomaton(tab.machine)];
+  openTabs.push(tab);
+  activeTabId = tab.id;
+  machine = tab.machine;
+  selectedState = null; selectedTransition = null;
+  history = tab.history; historyIndex = 0;
+  currentFilename = tab.filename;
+  $<HTMLInputElement>('#input-string').value = '';
+  $<HTMLInputElement>('#step-input').value = '';
+  $<HTMLTextAreaElement>('#text-editor').value = '';
+  stepperSession = null;
+  $('#simulation-result').hidden = true;
+  renderTabs();
+  render();
+  scheduleSave();
 }
 
 function convertToTextTab(filename: string, text: string): void {
@@ -471,11 +524,16 @@ function renderTabs(): void {
   }
   const plus = document.createElement('button');
   plus.className = 'tab-new'; plus.type = 'button'; plus.title = 'New file'; plus.textContent = '＋';
-  plus.addEventListener('click', () => { $('#new-machine').click(); showStartMenu(); });
+  plus.addEventListener('click', () => {
+    const placeholder = openTabs.find((tab) => tab.kind === 'start');
+    if (placeholder) activateTab(placeholder.id);
+    else openStartTab();
+  });
   region.append(plus);
 }
 
 function beginRename(): void {
+  if (activeTab()?.kind === 'start') return;
   const button = document.querySelector('#document-tabs .is-active .tab-label');
   if (!(button instanceof HTMLButtonElement)) return;
   const input = document.createElement('input');
@@ -500,9 +558,14 @@ function beginRename(): void {
 }
 
 function closeTab(id: string): void {
-  if (openTabs.length <= 1) return;
   const index = openTabs.findIndex((tab) => tab.id === id);
   if (index < 0) return;
+  if (openTabs.length === 1) {
+    if (openTabs[0]!.kind === 'start') return;
+    openTabs.length = 0;
+    openStartTab();
+    return;
+  }
   const [closed] = openTabs.splice(index, 1);
   scheduleSave();
   if (closed!.id === activeTabId) {
@@ -550,6 +613,8 @@ function applyLoadedMachine(machineInstance: Machine, filename: string): void {
   storeActiveTab();
   machine = machineInstance;
   selectedState = null; selectedTransition = null;
+  const tab = activeTab();
+  if (tab) tab.kind = 'automaton';
   setFilename(filename);
   renderTabs(); render(); commitHistory(); updateHistoryButtons();
   $<HTMLInputElement>('#input-string').value = activeTab()?.input ?? '';
@@ -965,12 +1030,19 @@ function applyTextInputAttributes(): void {
 }
 
 function render(): void {
-  const textMode = isTextMode();
+  const kind = activeTab()?.kind;
+  const textMode = kind === 'text';
+  const startMode = kind === 'start';
   const workspace = document.querySelector('.workspace');
-  if (workspace) workspace.classList.toggle('is-text-mode', textMode);
+  if (workspace) {
+    workspace.classList.toggle('is-text-mode', textMode);
+    workspace.classList.toggle('is-start-mode', startMode);
+  }
   const editor = $<HTMLTextAreaElement>('#text-editor');
   editor.hidden = !textMode;
   if (textMode) editor.value = activeTab()?.text ?? '';
+  const overlay = $('#start-overlay');
+  if (startMode) { renderStartMenu(); overlay.hidden = false; } else { overlay.hidden = true; startMenuView = 'main'; }
   renderStateSelectors(); renderTransitionFields(); renderSimulatorOptions(); renderMachineSettings(); renderStateList(); renderStateEditor(); renderSelectedTransitionEditor(); renderTransitions(); renderGraph();
   applyTextInputAttributes();
   $<HTMLSelectElement>('#machine-type').value = machineType(machine);
@@ -1405,6 +1477,8 @@ function openJff(file: File): void {
     applyLoadedMachine(structure, file.name);
     setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
     addRecent({ name: file.name, kind: 'automaton', data: contents });
+    const tab = activeTab();
+    if (tab) tab.recentKey = `automaton:${file.name.toLowerCase()}`;
   }).catch((error: unknown) => { setStatus(error instanceof Error ? error.message : 'Could not open file.', 'error'); showToast('Could not open that .jff file'); });
 }
 
@@ -1416,6 +1490,8 @@ function openFile(file: File): void {
       convertToTextTab(file.name, contents);
       setStatus(`Opened ${file.name}.`, 'success'); showToast('Text file opened');
       addRecent({ name: file.name, kind: 'text', data: contents });
+      const tab = activeTab();
+      if (tab) tab.recentKey = `text:${name}`;
     }).catch(() => { setStatus('Could not read that file.', 'error'); });
     return;
   }
@@ -1585,34 +1661,60 @@ $('#input-string').addEventListener('input', scheduleSave);
 $('#text-editor').addEventListener('input', () => { const tab = activeTab(); if (tab) tab.text = ($<HTMLTextAreaElement>('#text-editor')).value; scheduleSave(); });
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
-$('#start-new-file').addEventListener('click', () => $('#start-new-choices').classList.toggle('is-open'));
-$('#start-new-automaton').addEventListener('click', () => { hideStartMenu(); });
-$('#start-new-text').addEventListener('click', () => {
-  hideStartMenu();
-  const name = generateMachineName('txt');
-  convertToTextTab(name, '');
-  addRecent({ name, kind: 'text', data: '' });
-  setStatus('New text file created.');
-});
-$('#start-open').addEventListener('click', () => { hideStartMenu(); $('#open-file').click(); });
-$('#start-recents').addEventListener('click', (event) => {
-  const button = (event.target as Element).closest('button[data-index]');
+$('#start-menu').addEventListener('click', (event) => {
+  const button = (event.target as Element).closest('button');
   if (!button) return;
-  const recent = loadRecents()[Number(button.getAttribute('data-index'))];
+  const view = button.getAttribute('data-view');
+  if (view === 'main') { startMenuView = 'main'; renderStartMenu(); return; }
+  if (view === 'all') { startMenuView = 'all'; renderStartMenu(); return; }
+  const action = button.getAttribute('data-action');
+  if (action === 'new') { startMenuView = 'new'; renderStartMenu(); return; }
+  if (action === 'open') { $('#open-file').click(); return; }
+  if (action === 'clear-recents') {
+    try { localStorage.removeItem(RECENTS_KEY); } catch { /* ignore */ }
+    renderStartMenu();
+    setStatus('Recent files cleared.');
+    return;
+  }
+  if (action === 'new-automaton') {
+    const tab = activeTab();
+    if (!tab || tab.kind !== 'start') return;
+    tab.kind = 'automaton';
+    tab.history = [cloneAutomaton(tab.machine)];
+    tab.historyIndex = 0;
+    history = tab.history; historyIndex = 0;
+    setFilename(generateMachineName());
+    render(); commitHistory(); updateHistoryButtons(); setStatus('New machine created.');
+    return;
+  }
+  if (action === 'new-text') {
+    const name = generateMachineName('txt');
+    convertToTextTab(name, '');
+    addRecent({ name, kind: 'text', data: '' });
+    setStatus('New text file created.');
+    return;
+  }
+  const index = button.getAttribute('data-index');
+  if (index === null) return;
+  const recent = loadRecents()[Number(index)];
   if (!recent) return;
-  hideStartMenu();
-  if (recent.kind === 'text') convertToTextTab(recent.name, recent.data);
-  else {
+  const key = `${recent.kind}:${recent.name.toLowerCase()}`;
+  const existing = openTabs.find((tab) => tab.recentKey === key);
+  if (existing) { activateTab(existing.id); return; }
+  if (recent.kind === 'text') {
+    convertToTextTab(recent.name, recent.data);
+    const tab = activeTab();
+    if (tab) tab.recentKey = key;
+  } else {
     try {
       const structure = JFFCodec.decode(recent.data);
       if (!isMachineStructure(structure)) throw new Error('Not an automaton');
       applyLoadedMachine(structure, recent.name);
+      const tab = activeTab();
+      if (tab) tab.recentKey = key;
       setStatus(`Opened ${recent.name}.`, 'success');
     } catch { setStatus('That recent file could not be opened.', 'error'); }
   }
-});
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !$('#start-overlay').hidden) { hideStartMenu(); event.preventDefault(); }
 });
 $('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
 $('#load-example').addEventListener('click', (event) => { event.stopPropagation(); $('#example-menu').hidden = !$('#example-menu').hidden; });
@@ -1670,10 +1772,7 @@ document.addEventListener('keydown', (event) => {
 });
 document.addEventListener('keyup', (event) => { if (event.code === 'Space') spacePanActive = false; });
 if (!restoreWorkspace()) {
-  openTab(new FiniteStateAutomaton(), generateMachineName());
-  render();
-  commitHistory();
-  showStartMenu();
+  openStartTab();
 }
 updateGridBackground();
 updateHistoryButtons();
