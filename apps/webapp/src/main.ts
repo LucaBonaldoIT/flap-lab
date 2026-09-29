@@ -272,6 +272,18 @@ function isMachineStructure(value: JFLAPStructure): value is Machine {
 function persistWorkspace(): void {
   try {
     storeActiveTab();
+    let recents = loadRecents();
+    let recentsChanged = false;
+    for (const tab of openTabs) {
+      if (!tab.recentKey) continue;
+      const index = recents.findIndex((entry) => `${entry.kind}:${entry.name.toLowerCase()}` === tab.recentKey);
+      if (index < 0) continue;
+      const data = tab.kind === 'text' ? tab.text : JFFCodec.encode(tab.machine);
+      if (recents[index]!.data !== data) { recents[index]!.data = data; recentsChanged = true; }
+    }
+    if (recentsChanged) {
+      try { localStorage.setItem(RECENTS_KEY, JSON.stringify(recents)); } catch { recents = []; }
+    }
     const tabs = openTabs.map((tab) => {
       const item: Record<string, unknown> = { id: tab.id, kind: tab.kind, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput, text: tab.text, recentKey: tab.recentKey };
       if (tab.machine instanceof PushdownAutomaton) { item.acceptanceMode = tab.machine.acceptanceMode; item.singleInput = tab.machine.singleInput; }
@@ -1330,10 +1342,29 @@ function renderStepper(): void {
   renderGraph();
 }
 
+function resolveSimulateInputs(raw: string, depth = 0): string[] {
+  if (depth > 5) throw new Error('@file references are nested too deeply.');
+  const cleaned = raw.split('\n').map((line) => line.split('#')[0]).join(',');
+  const result: string[] = [];
+  for (const part of cleaned.split(',')) {
+    const token = part.trim();
+    if (token.startsWith('@')) {
+      const name = token.slice(1).trim();
+      if (!name) throw new Error('@ reference is missing a file name.');
+      const entry = loadRecents().find((item) => item.kind === 'text' && item.name.toLowerCase() === name.toLowerCase());
+      if (!entry) throw new Error(`Referenced file "${token}" not found. Open it once so it can be used.`);
+      result.push(...resolveSimulateInputs(entry.data, depth + 1));
+    } else {
+      result.push(token);
+    }
+  }
+  return result;
+}
+
 function runSimulation(): void {
   const raw = ($('#input-string') as HTMLInputElement).value;
-  const inputs = raw.includes(',') ? raw.split(',').map((part) => part.trim()) : [raw];
   try {
+    const inputs = resolveSimulateInputs(raw);
     if (inputs.length === 1) {
       runSingleSimulation(inputs[0]!);
       return;
@@ -1658,7 +1689,13 @@ $('#step-input').addEventListener('keydown', (event) => { if (event.key === 'Ent
 $('#step-forward').addEventListener('click', () => { if (stepperSession && stepperSession.index < stepperSession.views.length - 1) { stepperSession.index++; renderStepper(); } });
 $('#step-back').addEventListener('click', () => { if (stepperSession && stepperSession.index > 0) { stepperSession.index--; renderStepper(); } });
 $('#input-string').addEventListener('input', scheduleSave);
-$('#text-editor').addEventListener('input', () => { const tab = activeTab(); if (tab) tab.text = ($<HTMLTextAreaElement>('#text-editor')).value; scheduleSave(); });
+let textSaveTimer = 0;
+$('#text-editor').addEventListener('input', () => {
+  const tab = activeTab();
+  if (tab) tab.text = ($<HTMLTextAreaElement>('#text-editor')).value;
+  window.clearTimeout(textSaveTimer);
+  textSaveTimer = window.setTimeout(persistWorkspace, 600);
+});
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
 $('#start-menu').addEventListener('click', (event) => {
