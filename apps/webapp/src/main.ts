@@ -39,12 +39,13 @@ app.innerHTML = `
       <button class="button button-quiet history-button" id="undo-action" title="Undo (Ctrl/⌘ Z)" aria-label="Undo" disabled>↶</button>
       <button class="button button-quiet history-button" id="redo-action" title="Redo (Ctrl/⌘ Y)" aria-label="Redo" disabled>↷</button>
       <button class="button button-quiet" id="new-machine" title="Create a new machine">New</button>
-      <label class="button button-quiet file-button" for="open-file">Open .jff<input id="open-file" type="file" accept=".jff,.xml" /></label>
+      <label class="button button-quiet file-button" for="open-file">Open file<input id="open-file" type="file" /></label>
       <button class="button button-primary" id="save-file"><span class="button-icon">↧</span> Export .jff</button>
     </div>
   </header>
 
   <main class="workspace">
+    <textarea id="text-editor" hidden spellcheck="false" placeholder="Type anything…"></textarea>
     <aside class="sidebar left-sidebar">
       <div class="sidebar-heading"><span class="eyebrow">WORKSPACE</span><span class="machine-count" id="machine-count">0 states</span></div>
       <label class="field-label" for="machine-type">Machine type</label>
@@ -152,6 +153,20 @@ app.innerHTML = `
   </main>
   <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> MADE BY <a href="https://github.com/LucaBonaldoIT">LUCA BONALDO</a></span></footer>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
+  <div class="start-overlay" id="start-overlay" hidden>
+    <div class="start-menu">
+      <div class="start-logo">F</div>
+      <div class="start-title">Flap Lab</div>
+      <button class="start-action" id="start-new-file" type="button"><span class="start-icon">＋</span> New file</button>
+      <div class="start-new-choices" id="start-new-choices">
+        <button class="start-action start-sub" id="start-new-automaton" type="button">Automaton (.jff)</button>
+        <button class="start-action start-sub" id="start-new-text" type="button">Text file (.txt)</button>
+      </div>
+      <button class="start-action" id="start-open" type="button"><span class="start-icon">↧</span> Open file</button>
+      <div class="start-section-label">RECENTS</div>
+      <div class="start-recents" id="start-recents"></div>
+    </div>
+  </div>
 `;
 
 let machine: Machine = new FiniteStateAutomaton();
@@ -174,6 +189,7 @@ let tabCounter = 0;
 
 interface OpenTab {
   id: string;
+  kind: 'automaton' | 'text';
   filename: string;
   machine: Machine;
   selectedState: State | null;
@@ -183,6 +199,7 @@ interface OpenTab {
   viewBox: { x: number; y: number; width: number; height: number } | null;
   input: string;
   stepInput: string;
+  text: string;
 }
 
 const openTabs: OpenTab[] = [];
@@ -197,10 +214,10 @@ let currentFilename = 'Untitled machine';
 const NAME_ADJECTIVES = ['Amber', 'Basalt', 'Bristling', 'Cobalt', 'Crystal', 'Dusk', 'Ember', 'Feral', 'Gilded', 'Hollow', 'Ivory', 'Juniper', 'Lattice', 'Misty', 'Nimbus', 'Oaken', 'Prism', 'Quartz', 'Rustic', 'Silent', 'Tidal', 'Umber', 'Velvet', 'Willow'];
 const NAME_NOUNS = ['Automaton', 'Basin', 'Beacon', 'Cipher', 'Compass', 'Cyclone', 'Engine', 'Falcon', 'Furnace', 'Garden', 'Generator', 'Harbor', 'Junction', 'Lantern', 'Loom', 'Machine', 'Maze', 'Orchard', 'Prism', 'Relay', 'Spiral', 'Spire', 'Vortex', 'Weaver'];
 
-function generateMachineName(): string {
-  const adjective = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)];
-  const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)];
-  return `${adjective} ${noun}`;
+function generateMachineName(extension: 'jff' | 'txt' = 'jff'): string {
+  const adjective = NAME_ADJECTIVES[Math.floor(Math.random() * NAME_ADJECTIVES.length)]!;
+  const noun = NAME_NOUNS[Math.floor(Math.random() * NAME_NOUNS.length)]!;
+  return `${adjective.toLowerCase()}_${noun.toLowerCase()}.${extension}`;
 }
 
 function machineFingerprint(value: Machine): string {
@@ -243,8 +260,9 @@ function storeActiveTab(): void {
   if (!tab) return;
   tab.machine = machine; tab.selectedState = selectedState; tab.selectedTransition = selectedTransition;
   tab.history = history; tab.historyIndex = historyIndex;
-  tab.input = ($('#input-string') as HTMLInputElement).value;
-  tab.stepInput = ($('#step-input') as HTMLInputElement).value;
+  tab.input = ($<HTMLInputElement>('#input-string')).value;
+  tab.stepInput = ($<HTMLInputElement>('#step-input')).value;
+  tab.text = ($<HTMLTextAreaElement>('#text-editor')).value;
   const view = svg.viewBox.baseVal;
   tab.viewBox = { x: view.x, y: view.y, width: view.width, height: view.height };
 }
@@ -265,7 +283,7 @@ function persistWorkspace(): void {
   try {
     storeActiveTab();
     const tabs = openTabs.map((tab) => {
-      const item: Record<string, unknown> = { id: tab.id, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput };
+      const item: Record<string, unknown> = { id: tab.id, kind: tab.kind, filename: tab.filename, jff: JFFCodec.encode(tab.machine), viewBox: tab.viewBox, input: tab.input, stepInput: tab.stepInput, text: tab.text };
       if (tab.machine instanceof PushdownAutomaton) { item.acceptanceMode = tab.machine.acceptanceMode; item.singleInput = tab.machine.singleInput; }
       else if (tab.machine instanceof TuringMachine) item.acceptanceMode = tab.machine.acceptanceMode;
       return item;
@@ -283,8 +301,18 @@ function restoreWorkspace(): boolean {
     const payload = JSON.parse(raw) as { activeTabId?: string; nextTab?: number; tabs?: Array<Record<string, unknown>> };
     if (!Array.isArray(payload.tabs)) return false;
     for (const item of payload.tabs) {
-      if (!item || typeof item.jff !== 'string' || typeof item.filename !== 'string' || typeof item.id !== 'string') continue;
+      if (!item || typeof item.filename !== 'string' || typeof item.id !== 'string') continue;
       try {
+        if (item.kind === 'text') {
+          const numericId = Number(String(item.id).slice(4));
+          if (Number.isFinite(numericId)) tabCounter = Math.max(tabCounter, numericId);
+          openTextTab(item.filename, typeof item.text === 'string' ? item.text : '', String(item.id));
+          const restored = activeTab()!;
+          if (typeof item.input === 'string') restored.input = item.input;
+          if (typeof item.stepInput === 'string') restored.stepInput = item.stepInput;
+          continue;
+        }
+        if (typeof item.jff !== 'string') continue;
         const structure = JFFCodec.decode(item.jff);
         if (!isMachineStructure(structure)) continue;
         if (structure instanceof PushdownAutomaton) {
@@ -316,12 +344,82 @@ function restoreWorkspace(): boolean {
 
 function refreshSimulations(): void {
   stepperSession = null;
+  if (activeTab()?.kind === 'text') {
+    $('#simulation-result').hidden = true;
+    renderStepper();
+    return;
+  }
   const input = $<HTMLInputElement>('#input-string').value;
   const stepInput = $<HTMLInputElement>('#step-input').value;
   if (input) runSimulation();
   else $('#simulation-result').hidden = true;
   if (stepInput) startStepping();
   else renderStepper();
+}
+
+function isTextMode(): boolean {
+  return activeTab()?.kind === 'text';
+}
+
+const RECENTS_KEY = 'flap-lab.recents.v1';
+
+interface RecentFile { name: string; kind: 'automaton' | 'text'; data: string; at: number; }
+
+function loadRecents(): RecentFile[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]') as RecentFile[];
+    return Array.isArray(parsed) ? parsed.filter((item) => item && typeof item.name === 'string' && typeof item.data === 'string') : [];
+  } catch { return []; }
+}
+
+function addRecent(entry: { name: string; kind: 'automaton' | 'text'; data: string }): void {
+  try {
+    const list = loadRecents().filter((item) => !(item.name === entry.name && item.kind === entry.kind));
+    list.unshift({ ...entry, at: Date.now() });
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 8)));
+  } catch { /* ignore */ }
+}
+
+function renderStartMenu(): void {
+  const region = $('#start-recents');
+  const recents = loadRecents();
+  const items = recents.map((item, index) => `<button class="start-recent" data-index="${index}" type="button"><span class="start-recent-kind">${item.kind === 'text' ? 'TXT' : 'JFF'}</span><span class="start-recent-name">${escapeHtml(item.name)}</span></button>`).join('');
+  region.innerHTML = items || '<div class="start-recents-empty">No recent files yet</div>';
+}
+
+function showStartMenu(): void {
+  renderStartMenu();
+  $('#start-overlay').hidden = false;
+}
+
+function hideStartMenu(): void {
+  $('#start-overlay').hidden = true;
+  $('#start-new-choices').classList.remove('is-open');
+}
+
+function convertToTextTab(filename: string, text: string): void {
+  const tab = activeTab();
+  if (!tab) return;
+  tab.kind = 'text';
+  tab.text = text;
+  tab.machine = new FiniteStateAutomaton();
+  tab.history = [cloneAutomaton(tab.machine)];
+  tab.historyIndex = 0;
+  history = tab.history; historyIndex = 0;
+  selectedState = null; selectedTransition = null;
+  stepperSession = null;
+  setFilename(filename);
+  render();
+  refreshSimulations();
+}
+
+function openTextTab(filename: string, text: string, tabId?: string): void {
+  openTab(new FiniteStateAutomaton(), filename, tabId);
+  const tab = activeTab();
+  if (tab) { tab.kind = 'text'; tab.text = text; }
+  currentFilename = filename;
+  render();
+  refreshSimulations();
 }
 
 function activateTab(id: string): void {
@@ -340,6 +438,7 @@ function activateTab(id: string): void {
   stepperSession = null;
   $<HTMLInputElement>('#input-string').value = target.input;
   $<HTMLInputElement>('#step-input').value = target.stepInput;
+  $<HTMLTextAreaElement>('#text-editor').value = target.text;
   $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding');
   if (target.viewBox) setCanvasView(target.viewBox.x, target.viewBox.y, target.viewBox.width, target.viewBox.height);
   renderTabs(); render(); updateHistoryButtons();
@@ -371,8 +470,8 @@ function renderTabs(): void {
     region.append(tabElement);
   }
   const plus = document.createElement('button');
-  plus.className = 'tab-new'; plus.type = 'button'; plus.title = 'New machine'; plus.textContent = '＋';
-  plus.addEventListener('click', () => { $('#new-machine').click(); });
+  plus.className = 'tab-new'; plus.type = 'button'; plus.title = 'New file'; plus.textContent = '＋';
+  plus.addEventListener('click', () => { $('#new-machine').click(); showStartMenu(); });
   region.append(plus);
 }
 
@@ -418,6 +517,7 @@ function openTab(machineInstance: Machine, filename: string, tabId?: string): vo
   if (existing) storeActiveTab();
   const tab: OpenTab = {
     id: tabId ?? `tab-${++tabCounter}`,
+    kind: 'automaton',
     filename,
     machine: machineInstance,
     selectedState: null,
@@ -427,6 +527,7 @@ function openTab(machineInstance: Machine, filename: string, tabId?: string): vo
     viewBox: null,
     input: '',
     stepInput: '',
+    text: '',
   };
   if (!tabId) tabCounter = Math.max(tabCounter, Number(tab.id.slice(4)) || 0);
   tab.history = [cloneAutomaton(tab.machine)];
@@ -864,6 +965,12 @@ function applyTextInputAttributes(): void {
 }
 
 function render(): void {
+  const textMode = isTextMode();
+  const workspace = document.querySelector('.workspace');
+  if (workspace) workspace.classList.toggle('is-text-mode', textMode);
+  const editor = $<HTMLTextAreaElement>('#text-editor');
+  editor.hidden = !textMode;
+  if (textMode) editor.value = activeTab()?.text ?? '';
   renderStateSelectors(); renderTransitionFields(); renderSimulatorOptions(); renderMachineSettings(); renderStateList(); renderStateEditor(); renderSelectedTransitionEditor(); renderTransitions(); renderGraph();
   applyTextInputAttributes();
   $<HTMLSelectElement>('#machine-type').value = machineType(machine);
@@ -1286,29 +1393,54 @@ function loadExample(type: MachineType): void {
   stepperSession = null;
   runSimulation();
   startStepping();
-  applyLoadedMachine(entry.build(), entry.filename);
   setStatus(`Loaded example: ${entry.title}.`); showToast('Example machine loaded');
 }
 
 function openJff(file: File): void {
   file.text().then((contents) => {
     const structure = JFFCodec.decode(contents);
-    if (!(structure instanceof FiniteStateAutomaton || structure instanceof PushdownAutomaton || structure instanceof TuringMachine || structure instanceof MealyMachine || structure instanceof MooreMachine)) {
+    if (!isMachineStructure(structure)) {
       throw new Error('This structure is valid JFLAP data but is not an automaton.');
     }
     applyLoadedMachine(structure, file.name);
     setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
+    addRecent({ name: file.name, kind: 'automaton', data: contents });
   }).catch((error: unknown) => { setStatus(error instanceof Error ? error.message : 'Could not open file.', 'error'); showToast('Could not open that .jff file'); });
+}
+
+function openFile(file: File): void {
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.jff') || name.endsWith('.xml')) { openJff(file); return; }
+  if (name.endsWith('.txt')) {
+    file.text().then((contents) => {
+      convertToTextTab(file.name, contents);
+      setStatus(`Opened ${file.name}.`, 'success'); showToast('Text file opened');
+      addRecent({ name: file.name, kind: 'text', data: contents });
+    }).catch(() => { setStatus('Could not read that file.', 'error'); });
+    return;
+  }
+  setStatus('Only .jff and .txt files are supported.', 'error');
+  showToast('Unsupported file type');
 }
 
 function saveJff(): void {
   try {
+    if (isTextMode()) {
+      const text = $<HTMLTextAreaElement>('#text-editor').value;
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+      const link = document.createElement('a'); link.href = url;
+      const base = currentFilename.replace(/\.(txt)$/iu, '').replace(/[<>:"/\\|?*\u0000-\u001f]/gu, '_').trim();
+      link.download = `${base || 'untitled'}.txt`;
+      link.click(); URL.revokeObjectURL(url);
+      setStatus('Exported text file.', 'success'); showToast('Text file exported');
+      return;
+    }
     const text = JFFCodec.encode(machine);
     const blob = new Blob([text], { type: 'application/xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url;
     const base = currentFilename.replace(/\.(jff|xml)$/iu, '').replace(/[<>:"/\\|?*\u0000-\u001f]/gu, '_').trim();
-    link.download = `${!base || base === 'Untitled machine' ? 'automaton' : base}.jff`;
+    link.download = `${base || 'automaton'}.jff`;
     link.click(); URL.revokeObjectURL(url);
     setStatus('Exported JFLAP XML.', 'success'); showToast('JFF file exported');
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not export file.', 'error'); }
@@ -1450,8 +1582,38 @@ $('#step-input').addEventListener('keydown', (event) => { if (event.key === 'Ent
 $('#step-forward').addEventListener('click', () => { if (stepperSession && stepperSession.index < stepperSession.views.length - 1) { stepperSession.index++; renderStepper(); } });
 $('#step-back').addEventListener('click', () => { if (stepperSession && stepperSession.index > 0) { stepperSession.index--; renderStepper(); } });
 $('#input-string').addEventListener('input', scheduleSave);
+$('#text-editor').addEventListener('input', () => { const tab = activeTab(); if (tab) tab.text = ($<HTMLTextAreaElement>('#text-editor')).value; scheduleSave(); });
 $('#save-file').addEventListener('click', saveJff);
-$('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openJff(file); (event.target as HTMLInputElement).value = ''; });
+$('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
+$('#start-new-file').addEventListener('click', () => $('#start-new-choices').classList.toggle('is-open'));
+$('#start-new-automaton').addEventListener('click', () => { hideStartMenu(); });
+$('#start-new-text').addEventListener('click', () => {
+  hideStartMenu();
+  const name = generateMachineName('txt');
+  convertToTextTab(name, '');
+  addRecent({ name, kind: 'text', data: '' });
+  setStatus('New text file created.');
+});
+$('#start-open').addEventListener('click', () => { hideStartMenu(); $('#open-file').click(); });
+$('#start-recents').addEventListener('click', (event) => {
+  const button = (event.target as Element).closest('button[data-index]');
+  if (!button) return;
+  const recent = loadRecents()[Number(button.getAttribute('data-index'))];
+  if (!recent) return;
+  hideStartMenu();
+  if (recent.kind === 'text') convertToTextTab(recent.name, recent.data);
+  else {
+    try {
+      const structure = JFFCodec.decode(recent.data);
+      if (!isMachineStructure(structure)) throw new Error('Not an automaton');
+      applyLoadedMachine(structure, recent.name);
+      setStatus(`Opened ${recent.name}.`, 'success');
+    } catch { setStatus('That recent file could not be opened.', 'error'); }
+  }
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !$('#start-overlay').hidden) { hideStartMenu(); event.preventDefault(); }
+});
 $('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
 $('#load-example').addEventListener('click', (event) => { event.stopPropagation(); $('#example-menu').hidden = !$('#example-menu').hidden; });
 $('#example-menu').addEventListener('click', (event) => {
@@ -1511,6 +1673,7 @@ if (!restoreWorkspace()) {
   openTab(new FiniteStateAutomaton(), generateMachineName());
   render();
   commitHistory();
+  showStartMenu();
 }
 updateGridBackground();
 updateHistoryButtons();
