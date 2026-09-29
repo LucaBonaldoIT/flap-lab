@@ -433,6 +433,7 @@ function renderStartMenu(): void {
     <div class="start-title">Flap Lab</div>
     <button class="start-action" data-action="new" type="button"><span class="start-icon">＋</span> New file</button>
     <button class="start-action" data-action="open" type="button"><span class="start-icon">↧</span> Open file</button>
+    <button class="start-action" data-action="clear-workspace" type="button"><span class="start-icon">✕</span> Clear workspace</button>
     <div class="start-section-label">RECENTS</div>
     ${recents.slice(0, 3).map((item, index) => recentButton(item, index)).join('') || '<div class="start-recents-empty">No recent files yet</div>'}
     ${recents.length > 3 ? '<button class="start-see-all" data-view="all" type="button">See all</button>' : ''}`;
@@ -1763,9 +1764,25 @@ $('#start-menu').addEventListener('click', (event) => {
   if (action === 'new') { startMenuView = 'new'; renderStartMenu(); return; }
   if (action === 'open') { $('#open-file').click(); return; }
   if (action === 'clear-recents') {
-    try { localStorage.removeItem(RECENTS_KEY); } catch { /* ignore */ }
+    if (!window.confirm('Clear all recent files? Files still open in tabs will be kept.')) return;
+    const openKeys = new Set(openTabs.map((tab) => tab.recentKey).filter(Boolean));
+    try {
+      const kept = loadRecents().filter((entry) => openKeys.has(`${entry.kind}:${entry.name.toLowerCase()}`));
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(kept));
+    } catch { /* ignore */ }
     renderStartMenu();
-    setStatus('Recent files cleared.');
+    setStatus('Recent files cleared. Files still open were kept.');
+    return;
+  }
+  if (action === 'clear-workspace') {
+    if (!window.confirm('Clear the workspace? All open tabs and recent files will be closed and removed.')) return;
+    openTabs.length = 0;
+    history = []; historyIndex = 0;
+    selectedState = null; selectedTransition = null;
+    stepperSession = null;
+    try { localStorage.removeItem(RECENTS_KEY); } catch { /* ignore */ }
+    openStartTab();
+    setStatus('Workspace cleared.');
     return;
   }
   if (action === 'new-automaton') {
@@ -1775,7 +1792,10 @@ $('#start-menu').addEventListener('click', (event) => {
     tab.history = [cloneAutomaton(tab.machine)];
     tab.historyIndex = 0;
     history = tab.history; historyIndex = 0;
-    setFilename(generateMachineName());
+    const name = generateMachineName();
+    setFilename(name);
+    tab.recentKey = `automaton:${name.toLowerCase()}`;
+    addRecent({ name, kind: 'automaton', data: JFFCodec.encode(machine) });
     render(); commitHistory(); updateHistoryButtons(); setStatus('New machine created.');
     return;
   }
@@ -1808,7 +1828,14 @@ $('#start-menu').addEventListener('click', (event) => {
     } catch { setStatus('That recent file could not be opened.', 'error'); }
   }
 });
-$('#new-machine').addEventListener('click', () => { openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), generateMachineName()); render(); commitHistory(); setStatus('New machine created.'); });
+$('#new-machine').addEventListener('click', () => {
+  const name = generateMachineName();
+  openTab(makeMachine(($('#machine-type') as HTMLSelectElement).value as MachineType), name);
+  const tab = activeTab();
+  if (tab) tab.recentKey = `automaton:${name.toLowerCase()}`;
+  addRecent({ name, kind: 'automaton', data: JFFCodec.encode(machine) });
+  render(); commitHistory(); setStatus('New machine created.');
+});
 $('#load-example').addEventListener('click', (event) => { event.stopPropagation(); $('#example-menu').hidden = !$('#example-menu').hidden; });
 $('#example-menu').addEventListener('click', (event) => {
   const button = (event.target as Element).closest('button[data-type]');
