@@ -129,7 +129,6 @@ app.innerHTML = `
             <label><span class="field-label">To</span><select id="transition-to" required></select></label>
           </div>
           <div class="transition-fields" id="transition-fields"></div>
-          <button class="button button-add-transition" type="submit"><span>＋</span> Add transition</button>
         </form>
       </section>
 
@@ -941,6 +940,10 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   if (stepOutgoingKeys.has(pairKey)) label.classList.add('is-step-outgoing');
   label.textContent = groupedTransitions.map(transitionLabel).join(', ');
   label.addEventListener('click', (event) => { event.stopPropagation(); selectTransition(selectionTarget); });
+  const beginEdgeEdit = (event: MouseEvent): void => { event.stopPropagation(); event.preventDefault(); beginEdgeLabelEdit(selectionTarget, labelX, labelY); };
+  path.addEventListener('dblclick', beginEdgeEdit);
+  hitArea.addEventListener('dblclick', beginEdgeEdit);
+  label.addEventListener('dblclick', beginEdgeEdit);
   graphLayer.append(label);
 }
 
@@ -1064,6 +1067,7 @@ function renderTransitions(): void {
 function renderSelectedTransitionEditor(): void {
   const section = $('#selected-transition-section');
   const fields = $('#selected-transition-fields');
+  window.clearTimeout(edgeEditTimer);
   section.hidden = selectedTransition === null;
   if (!selectedTransition) { fields.replaceChildren(); return; }
   if (selectedTransition instanceof FSATransition) fields.innerHTML = fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas. Use λ or leave blank for an empty move.');
@@ -1071,8 +1075,6 @@ function renderSelectedTransitionEditor(): void {
   else if (selectedTransition instanceof TMTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-read', 'a | □', selectedTransition.reads.map((symbol) => symbol === ' ' ? '□' : symbol).join(' | '))}${fieldMarkup('Write', 'edit-edge-write', 'b | □', selectedTransition.writes.map((symbol) => symbol === ' ' ? '□' : symbol).join(' | '))}${fieldMarkup('Move', 'edit-edge-move', 'R | S', selectedTransition.directions.join(' | '))}`;
   else if (selectedTransition instanceof MooreTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas.')}${fieldMarkup('Target state output', 'edit-edge-output', 'x', selectedTransition.output)}`;
   else if (selectedTransition instanceof MealyTransition) fields.innerHTML = `${fieldMarkup('Read', 'edit-edge-label', 'a, b, c', labelGroup(selectedTransition).map((label) => label || 'λ').join(', '), 'Separate symbols with commas.')}${fieldMarkup('Output', 'edit-edge-output', 'x', selectedTransition.output)}`;
-  fields.insertAdjacentHTML('beforeend', '<button class="button button-add-transition" id="apply-edge-edit" type="button">Apply transition</button>');
-  $('#apply-edge-edit').addEventListener('click', applySelectedTransitionEdit);
 }
 
 function labelGroup(transition: Transition): string[] {
@@ -1086,6 +1088,84 @@ function splitSymbols(raw: string): string[] {
   return raw.split(',').map((item) => item.trim()).map((item) => /^(λ|Λ|ε)$/u.test(item) ? '' : item);
 }
 
+let edgeLabelEditor: HTMLInputElement | null = null;
+
+function beginEdgeLabelEdit(transition: Transition, labelX: number, labelY: number): void {
+  if (!(transition instanceof FSATransition || transition instanceof MealyTransition)) {
+    selectTransition(transition);
+    setStatus('Use the selected-transition editor for this transition type.', 'error');
+    return;
+  }
+  const shell = document.querySelector<HTMLElement>('.canvas-shell');
+  if (!shell) return;
+  window.clearTimeout(edgeEditTimer);
+  edgeLabelEditor?.remove();
+  const input = document.createElement('input');
+  edgeLabelEditor = input;
+  input.className = 'edge-label-editor';
+  input.type = 'text';
+  input.value = labelGroup(transition).map((label) => label || 'λ').join(', ');
+  const view = svg.viewBox.baseVal;
+  const scale = svgUnitScale();
+  input.style.left = `${(labelX - view.x) * scale}px`;
+  input.style.top = `${(labelY - view.y) * scale}px`;
+  const commit = (): void => {
+    const raw = input.value;
+    cancelEdgeLabelEdit();
+    const symbols = splitSymbols(raw);
+    try {
+      if (machine instanceof FiniteStateAutomaton) reconcileLabelGroup(machine, transition, symbols);
+      else if (machine instanceof MealyMachine) reconcileLabelGroup(machine, transition, symbols);
+      else if (machine instanceof MooreMachine) reconcileLabelGroup(machine, transition, symbols);
+      else throw new Error('Transition does not match the machine type.');
+      renderGraph(); renderTransitions(); commitHistory(); setStatus('Transition updated.', 'success');
+    } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update transition.', 'error'); }
+  };
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); commit(); }
+    else if (event.key === 'Escape') { event.preventDefault(); edgeEditorCancelled = true; cancelEdgeLabelEdit(); }
+  });
+  input.addEventListener('blur', () => {
+    if (edgeEditorCancelled) { edgeEditorCancelled = false; return; }
+    commit();
+  });
+  shell.append(input);
+  input.focus();
+  input.select();
+}
+
+let edgeEditorCancelled = false;
+
+function cancelEdgeLabelEdit(): void {
+  edgeLabelEditor?.remove();
+  edgeLabelEditor = null;
+}
+
+let edgeEditTimer = 0;
+
+function scheduleEdgeEditApply(): void {
+  window.clearTimeout(edgeEditTimer);
+  edgeEditTimer = window.setTimeout(applySelectedTransitionEdit, 450);
+}
+
+function reconcileLabelGroup(automaton: FiniteStateAutomaton | MealyMachine | MooreMachine, transition: Transition, symbols: string[]): void {
+  const from = transition.from; const to = transition.to;
+  const existing = automaton.transitions.filter((item) => item.from === from && item.to === to) as Array<FSATransition | MealyTransition>;
+  const remover = automaton as unknown as { removeTransition(transition: FSATransition | MealyTransition): void };
+  for (const item of existing.slice(symbols.length)) remover.removeTransition(item);
+  const kept = existing.slice(0, symbols.length);
+  for (const [index, item] of kept.entries()) item.label = symbols[index]!;
+  if (automaton instanceof MealyMachine) {
+    const output = kept.length ? (kept.at(-1) as MealyTransition).output : '';
+    for (let index = kept.length; index < symbols.length; index++) automaton.transition(from, to, symbols[index]!, output);
+  } else if (automaton instanceof MooreMachine) {
+    for (let index = kept.length; index < symbols.length; index++) automaton.transition(from, to, symbols[index]!);
+  } else {
+    for (let index = kept.length; index < symbols.length; index++) (automaton as FiniteStateAutomaton).transition(from, to, symbols[index]!);
+  }
+  if (selectedTransition && !(automaton.transitions as Transition[]).includes(selectedTransition)) selectedTransition = automaton.transitions.find((item) => item.from === from && item.to === to) ?? null;
+}
+
 function applySelectedTransitionEdit(): void {
   const transition = selectedTransition;
   if (!transition) return;
@@ -1093,13 +1173,8 @@ function applySelectedTransitionEdit(): void {
   const lambda = (input: string): string => /^(λ|Λ|ε)$/u.test(input) ? '' : input;
   try {
     if (transition instanceof FSATransition) {
-      const symbols = splitSymbols(value('edit-edge-label'));
-      const from = transition.from; const to = transition.to;
       if (!(machine instanceof FiniteStateAutomaton)) throw new Error('Transition does not match the machine type.');
-      const automaton = machine;
-      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof FSATransition) automaton.removeTransition(item);
-      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol));
-      selectedTransition = rebuilt[0] ?? null;
+      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
     } else if (transition instanceof PDATransition) {
       const input = lambda(value('edit-edge-input')); const pop = lambda(value('edit-edge-pop')); const push = lambda(value('edit-edge-push'));
       if (machine instanceof PushdownAutomaton && machine.singleInput && ([...pop].length > 1 || [...push].length > 1)) throw new Error('Single-symbol stack operations must contain at most one symbol.');
@@ -1115,25 +1190,32 @@ function applySelectedTransitionEdit(): void {
       transition.directions.splice(0, transition.directions.length, ...directions as Array<'L' | 'R' | 'S'>);
     } else if (transition instanceof MooreTransition) {
       if (!(machine instanceof MooreMachine)) throw new Error('Transition does not match the machine type.');
-      const automaton = machine;
-      automaton.setOutput(transition.to, lambda(value('edit-edge-output')));
-      const symbols = splitSymbols(value('edit-edge-label'));
-      const from = transition.from; const to = transition.to;
-      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof MooreTransition) automaton.removeTransition(item);
-      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol));
-      selectedTransition = rebuilt[0] ?? null;
+      machine.setOutput(transition.to, lambda(value('edit-edge-output')));
+      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
     } else if (transition instanceof MealyTransition) {
-      const output = lambda(value('edit-edge-output'));
-      const symbols = splitSymbols(value('edit-edge-label'));
-      const from = transition.from; const to = transition.to;
       if (!(machine instanceof MealyMachine)) throw new Error('Transition does not match the machine type.');
-      const automaton = machine;
-      for (const item of [...automaton.transitions]) if (item.from === from && item.to === to && item instanceof MealyTransition) automaton.removeTransition(item);
-      const rebuilt = symbols.map((symbol) => automaton.transition(from, to, symbol, output));
-      selectedTransition = rebuilt[0] ?? null;
+      transition.setOutput(lambda(value('edit-edge-output')));
+      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
     }
-    render(); commitHistory(); setStatus('Transition updated.', 'success');
+    renderGraph(); renderTransitions(); commitHistory();
+    fillEmptyEdgeEditFields(transition);
+    setStatus('Transition updated.', 'success');
   } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update transition.', 'error'); }
+}
+
+function fillEmptyEdgeEditFields(transition: Transition): void {
+  const labelField = document.getElementById('edit-edge-label') as HTMLInputElement | null;
+  if (labelField && (transition instanceof FSATransition || transition instanceof MealyTransition)) {
+    const symbols = splitSymbols(labelField.value);
+    if (symbols.some((symbol) => !symbol)) labelField.value = symbols.map((symbol) => symbol || 'λ').join(', ');
+  }
+  const setField = (id: string, value: string): void => {
+    const field = document.getElementById(id) as HTMLInputElement | null;
+    if (field && !field.value.trim()) field.value = value;
+  };
+  if (transition instanceof PDATransition) { setField('edit-edge-input', 'λ'); setField('edit-edge-pop', 'λ'); setField('edit-edge-push', 'λ'); }
+  else if (transition instanceof TMTransition) { setField('edit-edge-read', '□'); setField('edit-edge-write', '□'); setField('edit-edge-move', 'R'); }
+  else if (transition instanceof MealyTransition) setField('edit-edge-output', 'λ');
 }
 
 function createBlankTransition(from: State, to: State): void {
@@ -1228,28 +1310,56 @@ function screenToCanvas(clientX: number, clientY: number): { x: number; y: numbe
 }
 function eventToCanvas(event: PointerEvent | MouseEvent): { x: number; y: number } { return screenToCanvas(event.clientX, event.clientY); }
 
-function addTransition(event: SubmitEvent): void {
-  event.preventDefault();
+let autoAppliedTransition: Transition | null = null;
+let autoApplyMachine: Machine | null = null;
+let autoApplyTimer = 0;
+
+function scheduleAutoApplyTransition(): void {
+  window.clearTimeout(autoApplyTimer);
+  autoApplyMachine = machine;
+  autoApplyTimer = window.setTimeout(applyTransitionForm, 450);
+}
+
+function applyTransitionForm(): void {
+  window.clearTimeout(autoApplyTimer);
+  if (machine !== autoApplyMachine) { autoAppliedTransition = null; autoApplyMachine = null; return; }
+  autoApplyMachine = null;
   const from = machine.getState(Number(($('#transition-from') as HTMLSelectElement).value));
   const to = machine.getState(Number(($('#transition-to') as HTMLSelectElement).value));
-  if (!from || !to) { setStatus('Add two states before creating a transition.', 'error'); return; }
+  if (!from || !to) return;
+  if (autoAppliedTransition && (machine.transitions as Transition[]).includes(autoAppliedTransition)) (machine as unknown as { removeTransition(transition: Transition): void }).removeTransition(autoAppliedTransition);
+  autoAppliedTransition = null;
   const value = (id: string): string => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? '';
   const lambda = (input: string): string => /^(λ|Λ|ε)$/u.test(input) ? '' : input;
   try {
-    if (machine instanceof FiniteStateAutomaton) machine.transition(from, to, lambda(value('transition-label')));
-    else if (machine instanceof PushdownAutomaton) machine.transition(from, to, lambda(value('transition-input')), lambda(value('transition-pop')), lambda(value('transition-push')));
+    if (machine instanceof FiniteStateAutomaton) autoAppliedTransition = machine.transition(from, to, lambda(value('transition-label')));
+    else if (machine instanceof PushdownAutomaton) autoAppliedTransition = machine.transition(from, to, lambda(value('transition-input')), lambda(value('transition-pop')), lambda(value('transition-push')));
     else if (machine instanceof TuringMachine) {
       const parseTapes = (input: string): string[] => input.split('|').map((part) => part.trim()).map((symbol) => symbol === '□' || symbol === 'B' ? ' ' : symbol);
       const reads = parseTapes(value('transition-read')); const writes = parseTapes(value('transition-write'));
       const directions = parseTapes(value('transition-move')).map((direction) => direction.toUpperCase() as 'L' | 'R' | 'S');
-      machine.transition(from, to, reads, writes, directions);
-    } else if (machine instanceof MealyMachine) machine.transition(from, to, lambda(value('transition-label')), lambda(value('transition-output')));
+      autoAppliedTransition = machine.transition(from, to, reads, writes, directions);
+    } else if (machine instanceof MealyMachine) autoAppliedTransition = machine.transition(from, to, lambda(value('transition-label')), lambda(value('transition-output')));
     else if (machine instanceof MooreMachine) {
       machine.setOutput(to, lambda(value('transition-output')));
-      machine.transition(from, to, lambda(value('transition-label')));
+      autoAppliedTransition = machine.transition(from, to, lambda(value('transition-label')));
     }
-    render(); commitHistory(); setStatus(`Added transition ${from.name} → ${to.name}.`, 'success');
-  } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not add transition.', 'error'); }
+    renderGraph(); renderTransitions(); commitHistory();
+    fillEmptyTransitionSymbols();
+    setStatus(`Transition ${from.name} → ${to.name} applied.`, 'success');
+  } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not apply transition.', 'error'); }
+}
+
+function fillEmptyTransitionSymbols(): void {
+  const fieldIds = machine instanceof PushdownAutomaton || machine instanceof TuringMachine
+    ? ['transition-input', 'transition-pop', 'transition-push', 'transition-read', 'transition-write', 'transition-move']
+    : ['transition-label', 'transition-output'];
+  for (const id of fieldIds) {
+    const field = document.getElementById(id) as HTMLInputElement | null;
+    if (!field) continue;
+    const value = field.value.trim();
+    if (!value) field.value = machine instanceof TuringMachine && (id === 'transition-read' || id === 'transition-write') ? '□' : machine instanceof TuringMachine && id === 'transition-move' ? 'R' : 'λ';
+  }
 }
 
 function steppingState(): State | null {
@@ -1840,7 +1950,11 @@ svg.addEventListener('wheel', (event) => {
   if (event.shiftKey && !dx) { dx = dy; dy = 0; }
   setCanvasView(view.x + dx / scale, view.y + dy / scale);
 }, { passive: false });
-$('#transition-form').addEventListener('submit', addTransition);
+$('#transition-form').addEventListener('submit', (event) => { event.preventDefault(); window.clearTimeout(autoApplyTimer); applyTransitionForm(); });
+$('#transition-from').addEventListener('change', scheduleAutoApplyTransition);
+$('#transition-to').addEventListener('change', scheduleAutoApplyTransition);
+transitionFields.addEventListener('input', scheduleAutoApplyTransition);
+$('#selected-transition-fields').addEventListener('input', scheduleEdgeEditApply);
 $('#input-string').addEventListener('input', () => { updateInputSuggestion(); scheduleRun(); });
 $('#input-string').addEventListener('keydown', (event) => {
   if (inputSuggestion && (event.key === 'Tab' || event.key === 'Enter')) {
