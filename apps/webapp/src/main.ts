@@ -40,7 +40,7 @@ app.innerHTML = `
       <button class="button button-quiet history-button" id="redo-action" title="Redo (Ctrl/⌘ Y)" aria-label="Redo" disabled>↷</button>
       <button class="button button-quiet" id="new-machine" title="Create a new machine">New</button>
       <label class="button button-quiet file-button" for="open-file">Open file<input id="open-file" type="file" /></label>
-      <button class="button button-primary" id="save-file" title="Save (Ctrl/⌘ S)"><span class="button-icon">↧</span> Export .jff</button>
+      <button class="button button-primary" id="save-file" title="Save (Ctrl/⌘ S)"><span class="button-icon">↧</span> Export file</button>
     </div>
   </header>
 
@@ -160,6 +160,7 @@ app.innerHTML = `
     </aside>
   </main>
   <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> MADE BY <a href="https://github.com/LucaBonaldoIT">LUCA BONALDO</a></span></footer>
+  <div class="drop-overlay" id="drop-overlay" hidden><div class="drop-card">⇣ Drop a <b>.jff</b> or <b>.txt</b> file to open it</div></div>
   <div class="toast-region" id="toast-region" aria-live="polite"></div>
 `;
 
@@ -1861,11 +1862,15 @@ function openJff(file: File): void {
     if (!isMachineStructure(structure)) {
       throw new Error('This structure is valid JFLAP data but is not an automaton.');
     }
-    applyLoadedMachine(structure, file.name);
-    setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
-    addRecent({ name: file.name, kind: 'automaton', data: contents });
+    const startTabId = activeTab()?.kind === 'start' ? activeTabId : '';
+    openTab(structure, file.name);
     const tab = activeTab();
     if (tab) tab.recentKey = `automaton:${file.name.toLowerCase()}`;
+    if (startTabId) closeTab(startTabId);
+    render(); commitHistory(); updateHistoryButtons();
+    refreshSimulations();
+    setStatus(`Opened ${file.name}.`, 'success'); showToast('JFLAP file opened');
+    addRecent({ name: file.name, kind: 'automaton', data: contents });
   }).catch((error: unknown) => { setStatus(error instanceof Error ? error.message : 'Could not open file.', 'error'); showToast('Could not open that .jff file'); });
 }
 
@@ -1874,11 +1879,13 @@ function openFile(file: File): void {
   if (name.endsWith('.jff') || name.endsWith('.xml')) { openJff(file); return; }
   if (name.endsWith('.txt')) {
     file.text().then((contents) => {
-      convertToTextTab(file.name, contents);
-      setStatus(`Opened ${file.name}.`, 'success'); showToast('Text file opened');
-      addRecent({ name: file.name, kind: 'text', data: contents });
+      const startTabId = activeTab()?.kind === 'start' ? activeTabId : '';
+      openTextTab(file.name, contents);
       const tab = activeTab();
       if (tab) tab.recentKey = `text:${name}`;
+      if (startTabId) closeTab(startTabId);
+      setStatus(`Opened ${file.name}.`, 'success'); showToast('Text file opened');
+      addRecent({ name: file.name, kind: 'text', data: contents });
     }).catch(() => { setStatus('Could not read that file.', 'error'); });
     return;
   }
@@ -2066,6 +2073,23 @@ $('#text-editor').addEventListener('input', () => {
 });
 $('#save-file').addEventListener('click', saveJff);
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
+const dropOverlay = $('#drop-overlay');
+let dropOverlayTimer = 0;
+
+document.addEventListener('dragover', (event) => {
+  event.preventDefault();
+  dropOverlay.hidden = false;
+  window.clearTimeout(dropOverlayTimer);
+  dropOverlayTimer = window.setTimeout(() => { dropOverlay.hidden = true; }, 180);
+});
+document.addEventListener('dragleave', (event) => { if (!event.relatedTarget) dropOverlay.hidden = true; });
+document.addEventListener('drop', (event) => {
+  event.preventDefault();
+  window.clearTimeout(dropOverlayTimer);
+  dropOverlay.hidden = true;
+  const file = event.dataTransfer?.files?.[0];
+  if (file) openFile(file);
+});
 $('#start-menu').addEventListener('click', (event) => {
   const button = (event.target as Element).closest('button');
   if (!button) return;

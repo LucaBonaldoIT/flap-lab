@@ -69,6 +69,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .panel-resizer { position: absolute; z-index: 55; display: none; touch-action: none; }
 .panel-resizer:hover, .panel-resizer.is-resizing { background: #46523f; }
 .panel-resizer.is-resizing { background: var(--accent); }
+.drop-overlay { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; background: #0b0f0ccc; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); pointer-events: none; }
+.drop-overlay[hidden] { display: none; }
+.drop-card { padding: 22px 30px; border: 2px dashed #4a594d; border-radius: 12px; background: #131815f2; color: #c9d5ca; font-size: 12px; }
+.drop-card b { color: #e7ece8; }
 @media (min-width: 1051px) and (pointer: fine) {
   .panel-resizer { display: block; }
   .panel-resizer-left { top: 0; bottom: 0; right: -4px; width: 9px; border-radius: 3px; cursor: col-resize; }
