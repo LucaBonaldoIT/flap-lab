@@ -971,6 +971,7 @@ function renderState(state: State, stepping: State | null = null): void {
   const group = svgElement('g');
   group.classList.add('state-node');
   if (selectedState === state || multiSelectedStates.includes(state)) group.classList.add('is-selected');
+  if (multiSelectedStates.includes(state)) group.classList.add('is-group');
   if (stepping === state) group.classList.add('is-stepping');
   if (moveModeState === state) group.classList.add('is-move-mode');
   if (stateClass(state)) group.classList.add(stateClass(state));
@@ -2043,10 +2044,12 @@ document.addEventListener('pointerup', (event) => {
     dragGroup = null;
     if (moved) {
       commitHistory(); setStatus('Moved selection.');
+      multiSelectedStates = []; selectedState = null; selectedTransition = null;
       suppressCanvasClick = true;
       window.setTimeout(() => { suppressCanvasClick = false; }, 0);
     }
     else { selectedState = multiSelectedStates[0] ?? null; selectedTransition = null; render(); }
+    renderGraph();
     return;
   }
   if (canvasPinch) {
