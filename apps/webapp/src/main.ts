@@ -917,8 +917,11 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   } else {
     const dx = to.x - from.x; const dy = to.y - from.y; const length = Math.hypot(dx, dy) || 1;
     const ux = dx / length; const uy = dy / length;
-    const startX = from.x + ux * 38; const startY = from.y + uy * 38;
-    const endX = to.x - ux * 40; const endY = to.y - uy * 40;
+    const perpX = -uy; const perpY = ux;
+    const mutual = machine.transitions.some((item) => item.from === transition.to && item.to === transition.from);
+    const sideOffset = mutual ? -10 : 0;
+    const startX = from.x + ux * 38 + perpX * sideOffset; const startY = from.y + uy * 38 + perpY * sideOffset;
+    const endX = to.x - ux * 40 + perpX * sideOffset; const endY = to.y - uy * 40 + perpY * sideOffset;
     const curve = -26;
     const controlX = transition.control?.x ?? (startX + endX) / 2 - uy * curve;
     const controlY = transition.control?.y ?? (startY + endY) / 2 + ux * curve;
