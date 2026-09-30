@@ -207,6 +207,7 @@ let canvasPinch: { dist: number; width: number; height: number; center: { x: num
 let spacePanActive = false;
 let canvasMarquee: { start: { x: number; y: number }; current: { x: number; y: number }; pointerId: number } | null = null;
 let multiSelectedStates: State[] = [];
+let marqueeBase: State[] = [];
 let dragGroup: { members: Array<{ state: State; x: number; y: number }>; origin: { x: number; y: number } } | null = null;
 let currentFilename = 'Untitled machine';
 
@@ -1950,7 +1951,21 @@ svg.addEventListener('pointerdown', (event) => {
   if (event.shiftKey && event.button === 0) {
     event.preventDefault(); event.stopPropagation();
     draggingState = null; dragGroup = null; canvasPan = null;
-    multiSelectedStates = [];
+    const stateNode = target.closest('.state-node');
+    if (stateNode instanceof SVGGraphicsElement) {
+      const state = machine.states.find((item) => String(item.id) === stateNode.dataset.stateId);
+      if (state) {
+        const index = multiSelectedStates.indexOf(state);
+        if (index >= 0) multiSelectedStates.splice(index, 1);
+        else multiSelectedStates.push(state);
+        selectedTransition = null;
+        suppressCanvasClick = true;
+        window.setTimeout(() => { suppressCanvasClick = false; }, 0);
+        renderGraph();
+        return;
+      }
+    }
+    marqueeBase = [...multiSelectedStates];
     canvasMarquee = { start: eventToCanvas(event), current: eventToCanvas(event), pointerId: event.pointerId };
     svg.setPointerCapture(event.pointerId);
     renderGraph();
@@ -1994,7 +2009,7 @@ document.addEventListener('pointermove', (event) => {
     canvasMarquee.current = eventToCanvas(event);
     const left = Math.min(canvasMarquee.start.x, canvasMarquee.current.x); const right = Math.max(canvasMarquee.start.x, canvasMarquee.current.x);
     const top = Math.min(canvasMarquee.start.y, canvasMarquee.current.y); const bottom = Math.max(canvasMarquee.start.y, canvasMarquee.current.y);
-    multiSelectedStates = machine.states.filter((state) => state.point.x >= left && state.point.x <= right && state.point.y >= top && state.point.y <= bottom);
+    multiSelectedStates = [...new Set([...marqueeBase, ...machine.states.filter((state) => state.point.x >= left && state.point.x <= right && state.point.y >= top && state.point.y <= bottom)])];
     renderGraph();
     return;
   }
@@ -2034,6 +2049,7 @@ document.addEventListener('pointermove', (event) => {
 document.addEventListener('pointerup', (event) => {
   if (canvasMarquee && event.pointerId === canvasMarquee.pointerId) {
     canvasMarquee = null;
+    marqueeBase = [];
     suppressCanvasClick = true;
     window.setTimeout(() => { suppressCanvasClick = false; }, 0);
     renderGraph();

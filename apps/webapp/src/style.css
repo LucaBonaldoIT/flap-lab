@@ -207,7 +207,7 @@ select { appearance: none; padding-right: 30px; }
 .state-circle { fill: #1c2520; stroke: #9aa69c; stroke-width: 1.8; transition: fill .15s, stroke .15s; }
 .state-node:hover .state-circle { fill: #29342c; stroke: #d2ddd4; }
 .state-node.is-selected .state-circle { fill: #30201b; stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 7px #b02e0c44); }
-.state-node.is-group .state-circle { stroke: #a3d98a; stroke-dasharray: 5 4; }
+.state-node.is-group .state-circle { stroke: var(--accent); stroke-dasharray: 5 4; }
 .state-node.state-initial .state-circle { stroke: var(--accent); }
 .final-ring { fill: none; stroke: #dce6de; stroke-width: 1.3; pointer-events: none; }
 .state-initial .final-ring, .state-both .final-ring { stroke: var(--accent); }
