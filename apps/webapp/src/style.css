@@ -139,6 +139,7 @@ select { appearance: none; padding-right: 30px; }
 .transition-table td { background: #151a17; }
 .transition-table td:first-child, .transition-table th:first-child { position: sticky; left: 0; text-align: left; background: var(--panel); min-width: 64px; border-left: 1px solid #252d27; }
 .transition-table .cell-empty { color: #5b685f; }
+.convert-dfa-button { width: 100%; min-height: 30px; margin-top: 10px; padding: 0 10px; font-size: 10px; }
 .empty-list { padding: 14px 9px; color: #66736a; font-size: 10px; line-height: 1.5; }
 .state-list-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #b9c4bb; text-align: left; cursor: pointer; }
 .state-list-item:hover { background: #1d251f; }

@@ -67,6 +67,7 @@ app.innerHTML = `
       <section class="transition-table-section" id="transition-table-section" hidden>
         <div class="section-heading"><span>TRANSITION TABLE</span></div>
         <div class="transition-table-wrap" id="transition-table-wrap"></div>
+        <button class="button convert-dfa-button" id="convert-dfa" hidden title="Subset construction: opens the equivalent DFA in a new tab">Open equivalent DFA</button>
       </section>
 
       <div class="editor-card" id="state-editor">
@@ -436,7 +437,70 @@ function renderAutomatonMode(): void {
   if (!display) return;
   const mode = detectAutomatonMode();
   display.textContent = mode === 'dfa' ? 'DFA' : mode === 'nfa' ? 'NFA' : 'λ-NFA';
+  const button = $('#convert-dfa');
+  if (button) button.hidden = mode === 'dfa';
 }
+
+function buildEquivalentDFA(source: FiniteStateAutomaton): FiniteStateAutomaton {
+  const symbols = [...new Set(source.transitions.filter((item): item is FSATransition => item instanceof FSATransition && item.label !== '').map((item) => item.label))].sort((left, right) => left.localeCompare(right));
+  const closure = (members: State[]): State[] => {
+    const reached = new Set<State>(members);
+    const queue = [...members];
+    while (queue.length) {
+      const current = queue.shift()!;
+      for (const transition of source.transitions) {
+        if (transition instanceof FSATransition && transition.label === '' && transition.from === current && !reached.has(transition.to)) { reached.add(transition.to); queue.push(transition.to); }
+      }
+    }
+    return [...reached].sort((left, right) => left.id - right.id);
+  };
+  const dfa = new FiniteStateAutomaton();
+  const subsets = new Map<string, State[]>();
+  const created = new Map<string, State>();
+  const levels = new Map<string, number>();
+  const queue: string[] = [];
+  const record = (members: State[], level: number): State => {
+    const key = members.map((item) => item.id).join(',');
+    let state = created.get(key);
+    if (state) return state;
+    state = dfa.createState({ x: 0, y: 0 });
+    state.name = `{${members.map((item) => item.name).join(',')}}`;
+    created.set(key, state);
+    subsets.set(key, members);
+    levels.set(key, level);
+    queue.push(key);
+    return state;
+  };
+  const start = source.initialState ? closure([source.initialState]) : [];
+  if (start.length) dfa.setInitialState(record(start, 0));
+  while (queue.length) {
+    const key = queue.shift()!;
+    const members = subsets.get(key)!;
+    const from = created.get(key)!;
+    for (const symbol of symbols) {
+      const targets = new Set<State>();
+      for (const member of members) {
+        for (const transition of source.transitions) {
+          if (transition instanceof FSATransition && transition.from === member && transition.label === symbol) targets.add(transition.to);
+        }
+      }
+      if (!targets.size) continue;
+      dfa.transition(from, record(closure([...targets]), (levels.get(key) ?? 0) + 1), symbol);
+    }
+  }
+  for (const [key, members] of subsets) {
+    if (members.some((member) => source.isFinalState(member))) dfa.addFinalState(created.get(key)!);
+  }
+  const byLevel = new Map<number, State[]>();
+  for (const [key, level] of levels) {
+    const list = byLevel.get(level) ?? []; list.push(created.get(key)!); byLevel.set(level, list);
+  }
+  for (const [level, list] of byLevel) {
+    list.forEach((state, index) => { state.point = { x: 240 + level * 220, y: 300 + (index - (list.length - 1) / 2) * 150 }; });
+  }
+  return dfa;
+}
+
 
 function addRecent(entry: { name: string; kind: 'automaton' | 'text'; data: string }): void {
   try {
@@ -2215,6 +2279,21 @@ $('#text-editor').addEventListener('input', () => {
   textSaveTimer = window.setTimeout(persistWorkspace, 600);
 });
 $('#save-file').addEventListener('click', saveJff);
+$('#convert-dfa').addEventListener('click', () => {
+  if (!(machine instanceof FiniteStateAutomaton)) return;
+  const dfa = buildEquivalentDFA(machine);
+  if (!dfa.states.length || !dfa.initialState) { setStatus('Add an initial state to build the equivalent DFA.', 'error'); return; }
+  const startTabId = activeTab()?.kind === 'start' ? activeTabId : '';
+  const name = `${currentFilename.replace(/\.jff$/iu, '') || 'nfa'}_dfa.jff`;
+  openTab(dfa, name);
+  const tab = activeTab();
+  if (tab) tab.recentKey = `automaton:${name.toLowerCase()}`;
+  addRecent({ name, kind: 'automaton', data: JFFCodec.encode(machine) });
+  if (startTabId) closeTab(startTabId);
+  render(); commitHistory(); updateHistoryButtons();
+  refreshSimulations();
+  setStatus('Equivalent DFA opened in a new tab.', 'success'); showToast('Equivalent DFA generated');
+});
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
 const dropOverlay = $('#drop-overlay');
 let dropOverlayTimer = 0;
