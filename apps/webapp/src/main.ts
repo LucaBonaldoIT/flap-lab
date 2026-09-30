@@ -205,6 +205,9 @@ let canvasPan: { pointerId: number; clientX: number; clientY: number; viewX: num
 const canvasPointers = new Map<number, { x: number; y: number }>();
 let canvasPinch: { dist: number; width: number; height: number; center: { x: number; y: number } } | null = null;
 let spacePanActive = false;
+let canvasMarquee: { start: { x: number; y: number }; current: { x: number; y: number }; pointerId: number } | null = null;
+let multiSelectedStates: State[] = [];
+let dragGroup: { members: Array<{ state: State; x: number; y: number }>; origin: { x: number; y: number } } | null = null;
 let currentFilename = 'Untitled machine';
 
 const NAME_ADJECTIVES = ['Amber', 'Basalt', 'Bristling', 'Cobalt', 'Crystal', 'Dusk', 'Ember', 'Feral', 'Gilded', 'Hollow', 'Ivory', 'Juniper', 'Lattice', 'Misty', 'Nimbus', 'Oaken', 'Prism', 'Quartz', 'Rustic', 'Silent', 'Tidal', 'Umber', 'Velvet', 'Willow'];
@@ -879,6 +882,7 @@ function svgElement<K extends keyof SVGElementTagNameMap>(name: K): SVGElementTa
 
 function renderGraph(): void {
   graphLayer.replaceChildren();
+  multiSelectedStates = multiSelectedStates.filter((state) => machine.states.includes(state));
   const grouped = new Map<string, Transition[]>();
   for (const transition of machine.transitions) {
     const key = `${transition.from.id}:${transition.to.id}`;
@@ -894,6 +898,15 @@ function renderGraph(): void {
   }
   for (const state of machine.states) renderState(state, steppingState());
   for (const state of machine.states) if (machine.initialState === state) renderInitialArrow(state);
+  if (canvasMarquee) {
+    const rect = svgElement('rect');
+    rect.classList.add('marquee');
+    rect.setAttribute('x', String(Math.min(canvasMarquee.start.x, canvasMarquee.current.x)));
+    rect.setAttribute('y', String(Math.min(canvasMarquee.start.y, canvasMarquee.current.y)));
+    rect.setAttribute('width', String(Math.abs(canvasMarquee.current.x - canvasMarquee.start.x)));
+    rect.setAttribute('height', String(Math.abs(canvasMarquee.current.y - canvasMarquee.start.y)));
+    graphLayer.append(rect);
+  }
   $('#canvas-empty').classList.toggle('is-hidden', machine.states.length > 0);
   $('#canvas-coordinates').textContent = `${machine.states.length} ${machine.states.length === 1 ? 'state' : 'states'} · ${machine.transitions.length} ${machine.transitions.length === 1 ? 'transition' : 'transitions'}`;
   $('#machine-count').textContent = `${machine.states.length} ${machine.states.length === 1 ? 'state' : 'states'}`;
@@ -957,7 +970,7 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
 function renderState(state: State, stepping: State | null = null): void {
   const group = svgElement('g');
   group.classList.add('state-node');
-  if (selectedState === state) group.classList.add('is-selected');
+  if (selectedState === state || multiSelectedStates.includes(state)) group.classList.add('is-selected');
   if (stepping === state) group.classList.add('is-stepping');
   if (moveModeState === state) group.classList.add('is-move-mode');
   if (stateClass(state)) group.classList.add(stateClass(state));
@@ -975,7 +988,16 @@ function renderState(state: State, stepping: State | null = null): void {
   group.addEventListener('click', (event) => { event.stopPropagation(); if (addStateMode) return; selectState(state); });
   group.addEventListener('pointerdown', (event) => {
     if (addStateMode || event.button !== 0) return;
-    event.preventDefault(); event.stopPropagation(); selectState(state);
+    event.preventDefault(); event.stopPropagation();
+    if (multiSelectedStates.length > 1 && multiSelectedStates.includes(state)) {
+      selectedState = state; selectedTransition = null;
+      draggingState = null;
+      dragGroup = { members: multiSelectedStates.map((member) => ({ state: member, x: member.point.x, y: member.point.y })), origin: eventToCanvas(event) };
+      suppressCanvasClick = false;
+      return;
+    }
+    multiSelectedStates = [];
+    selectState(state);
     const now = performance.now();
     if (moveModeState !== state && lastTapState === state && now - lastTapTime < 400) {
       lastTapState = null; lastTapTime = 0;
@@ -1924,6 +1946,15 @@ $('#add-state').addEventListener('click', () => { addStateMode = !addStateMode; 
 svg.addEventListener('pointerdown', (event) => {
   const target = event.target as Element;
   const onMachineItem = Boolean(target.closest('.state-node, .edge-path, .edge-hit-area, .edge-label'));
+  if (event.shiftKey && event.button === 0) {
+    event.preventDefault(); event.stopPropagation();
+    draggingState = null; dragGroup = null; canvasPan = null;
+    multiSelectedStates = [];
+    canvasMarquee = { start: eventToCanvas(event), current: eventToCanvas(event), pointerId: event.pointerId };
+    svg.setPointerCapture(event.pointerId);
+    renderGraph();
+    return;
+  }
   const shouldPan = event.button === 1 || spacePanActive || (event.button === 0 && !onMachineItem && !addStateMode);
   canvasPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   if (canvasPointers.size === 2) {
@@ -1952,11 +1983,28 @@ $('#automaton-canvas').addEventListener('click', (event) => {
   const target = event.target as Element;
   if (target.closest('.state-node, .edge-path, .edge-label')) return;
   if (moveModeState) { moveModeState = null; selectTransition(null); return; }
+  multiSelectedStates = [];
   addState(eventToCanvas(event));
   if (addStateMode) { $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding'); }
 });
 document.addEventListener('pointermove', (event) => {
   if (canvasPointers.has(event.pointerId)) canvasPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (canvasMarquee && event.pointerId === canvasMarquee.pointerId) {
+    canvasMarquee.current = eventToCanvas(event);
+    const left = Math.min(canvasMarquee.start.x, canvasMarquee.current.x); const right = Math.max(canvasMarquee.start.x, canvasMarquee.current.x);
+    const top = Math.min(canvasMarquee.start.y, canvasMarquee.current.y); const bottom = Math.max(canvasMarquee.start.y, canvasMarquee.current.y);
+    multiSelectedStates = machine.states.filter((state) => state.point.x >= left && state.point.x <= right && state.point.y >= top && state.point.y <= bottom);
+    renderGraph();
+    return;
+  }
+  if (dragGroup) {
+    const point = eventToCanvas(event);
+    const deltaX = point.x - dragGroup.origin.x; const deltaY = point.y - dragGroup.origin.y;
+    if (Math.hypot(deltaX, deltaY) < 3) return;
+    for (const member of dragGroup.members) member.state.point = { x: member.x + deltaX, y: member.y + deltaY };
+    renderGraph();
+    return;
+  }
   if (canvasPinch && canvasPointers.size >= 2) {
     const [left, right] = [...canvasPointers.values()];
     const factor = (Math.hypot(left!.x - right!.x, left!.y - right!.y) || 1) / canvasPinch.dist;
@@ -1983,6 +2031,24 @@ document.addEventListener('pointermove', (event) => {
   renderGraph();
 });
 document.addEventListener('pointerup', (event) => {
+  if (canvasMarquee && event.pointerId === canvasMarquee.pointerId) {
+    canvasMarquee = null;
+    suppressCanvasClick = true;
+    window.setTimeout(() => { suppressCanvasClick = false; }, 0);
+    renderGraph();
+    return;
+  }
+  if (dragGroup) {
+    const moved = Math.hypot(eventToCanvas(event).x - dragGroup.origin.x, eventToCanvas(event).y - dragGroup.origin.y) >= 3;
+    dragGroup = null;
+    if (moved) {
+      commitHistory(); setStatus('Moved selection.');
+      suppressCanvasClick = true;
+      window.setTimeout(() => { suppressCanvasClick = false; }, 0);
+    }
+    else { selectedState = multiSelectedStates[0] ?? null; selectedTransition = null; render(); }
+    return;
+  }
   if (canvasPinch) {
     canvasPointers.delete(event.pointerId);
     if (canvasPointers.size < 2) {
@@ -2218,6 +2284,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Escape' && moveModeState) { moveModeState = null; moveModeEntryDrag = false; renderGraph(); setStatus('Move mode off.'); return; }
+  if (event.key === 'Escape' && multiSelectedStates.length) { multiSelectedStates = []; renderGraph(); setStatus('Selection cleared.'); return; }
   if (!(event.metaKey || event.ctrlKey)) return;
   const key = event.key.toLowerCase();
   if (key === '+' || key === '=') { event.preventDefault(); zoomAt(1.2); return; }

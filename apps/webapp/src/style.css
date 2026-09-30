@@ -200,6 +200,7 @@ select { appearance: none; padding-right: 30px; }
 .edge-label-editor { position: absolute; z-index: 40; width: 150px; transform: translate(-50%, -50%); border: 0; outline: 0; padding: 0; background: transparent; color: #c7d0c8; font: 12px var(--mono); text-align: center; caret-color: var(--accent); user-select: text; -webkit-user-select: text; }
 .edge-label-editor:focus { color: var(--accent); }
 .edge-label-editor:focus, .edge-label-editor:focus-visible { outline: 0; }
+.marquee { fill: #6f665c1f; stroke: #8a9a8e; stroke-width: 1.4; stroke-dasharray: 6 5; pointer-events: none; }
 .initial-arrow { fill: none; stroke: var(--accent); stroke-width: 1.8; }
 .state-node { cursor: grab; outline: none; }
 .state-node:active { cursor: grabbing; }
