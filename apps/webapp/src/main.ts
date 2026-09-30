@@ -235,6 +235,7 @@ function commitHistory(): void {
   historyIndex = history.length - 1;
   updateHistoryButtons();
   scheduleSave();
+  scheduleEditRefresh();
 }
 
 function updateHistoryButtons(): void {
@@ -249,6 +250,7 @@ function restoreHistory(index: number): void {
   selectedState = null; selectedTransition = null;
   render(); setStatus(index === history.length - 1 ? 'Redid change.' : 'Undid change.');
   scheduleSave();
+  scheduleEditRefresh();
 }
 
 let restoringWorkspace = false;
@@ -381,6 +383,19 @@ function refreshSimulations(): void {
 
 function isTextMode(): boolean {
   return activeTab()?.kind === 'text';
+}
+
+let editRefreshTimer = 0;
+
+function scheduleEditRefresh(): void {
+  window.clearTimeout(editRefreshTimer);
+  editRefreshTimer = window.setTimeout(() => {
+    if (isTextMode() || activeTab()?.kind === 'start') return;
+    const input = $<HTMLInputElement>('#input-string').value;
+    const stepInput = $<HTMLInputElement>('#step-input').value;
+    if (input) runSimulation(); else $('#simulation-result').hidden = true;
+    if (stepInput) startStepping(); else renderStepper();
+  }, 350);
 }
 
 const RECENTS_KEY = 'flap-lab.recents.v1';
