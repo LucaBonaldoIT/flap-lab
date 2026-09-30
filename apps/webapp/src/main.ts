@@ -418,6 +418,26 @@ function loadRecents(): RecentFile[] {
   } catch { return []; }
 }
 
+function detectAutomatonMode(): 'dfa' | 'nfa' | 'lambda-nfa' {
+  if (!(machine instanceof FiniteStateAutomaton)) return 'lambda-nfa';
+  const transitions = machine.transitions.filter((item): item is FSATransition => item instanceof FSATransition);
+  if (transitions.some((item) => item.label === '')) return 'lambda-nfa';
+  const seen = new Map<string, string>();
+  for (const item of transitions) {
+    const key = `${item.from.id}:${item.label}`;
+    if (seen.has(key) && seen.get(key) !== item.to.name) return 'nfa';
+    seen.set(key, item.to.name);
+  }
+  return 'dfa';
+}
+
+function renderAutomatonMode(): void {
+  const display = $('#detected-automaton-type');
+  if (!display) return;
+  const mode = detectAutomatonMode();
+  display.textContent = mode === 'dfa' ? 'DFA' : mode === 'nfa' ? 'NFA' : 'λ-NFA';
+}
+
 function addRecent(entry: { name: string; kind: 'automaton' | 'text'; data: string }): void {
   try {
     const list = loadRecents().filter((item) => !(item.name === entry.name && item.kind === entry.kind));
@@ -852,6 +872,11 @@ function renderSimulatorOptions(): void {
 
 function renderMachineSettings(): void {
   const settings = $('#machine-settings');
+  if (machine instanceof FiniteStateAutomaton) {
+    settings.innerHTML = `<div class="machine-setting"><span class="field-label">Automaton type</span><div class="detected-type" id="detected-automaton-type">λ-NFA (lambda transitions)</div></div>`;
+    renderAutomatonMode();
+    return;
+  }
   if (machine instanceof TuringMachine) {
     settings.innerHTML = `<div class="machine-setting"><label class="field-label" for="tape-count">Tapes</label><div class="inline-setting"><input class="control-input" id="tape-count" type="number" min="1" max="5" value="${machine.tapeCount}" /><button class="icon-button" id="apply-tapes" title="Apply tape count">↵</button></div></div>`;
     $('#apply-tapes').addEventListener('click', () => {
@@ -1085,6 +1110,7 @@ function renderStateEditor(): void {
 
 function renderTransitions(): void {
   renderTransitionTable();
+  renderAutomatonMode();
   transitionList.replaceChildren();
   $('#transition-count').textContent = String(machine.transitions.length);
   if (!machine.transitions.length) { transitionList.innerHTML = '<div class="transition-empty">Transitions you add will appear here.</div>'; return; }
@@ -1471,10 +1497,10 @@ function applyTransitionForm(): void {
   const from = machine.getState(Number(($('#transition-from') as HTMLSelectElement).value));
   const to = machine.getState(Number(($('#transition-to') as HTMLSelectElement).value));
   if (!from || !to) return;
-  if (autoAppliedTransition && (machine.transitions as Transition[]).includes(autoAppliedTransition)) (machine as unknown as { removeTransition(transition: Transition): void }).removeTransition(autoAppliedTransition);
-  autoAppliedTransition = null;
   const value = (id: string): string => (document.getElementById(id) as HTMLInputElement | null)?.value.trim() ?? '';
   const lambda = (input: string): string => /^(λ|Λ|ε)$/u.test(input) ? '' : input;
+  if (autoAppliedTransition && (machine.transitions as Transition[]).includes(autoAppliedTransition)) (machine as unknown as { removeTransition(transition: Transition): void }).removeTransition(autoAppliedTransition);
+  autoAppliedTransition = null;
   try {
     if (machine instanceof FiniteStateAutomaton) autoAppliedTransition = machine.transition(from, to, lambda(value('transition-label')));
     else if (machine instanceof PushdownAutomaton) autoAppliedTransition = machine.transition(from, to, lambda(value('transition-input')), lambda(value('transition-pop')), lambda(value('transition-push')));

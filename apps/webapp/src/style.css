@@ -125,6 +125,7 @@ select { appearance: none; padding-right: 30px; }
 .inline-setting { display: flex; gap: 5px; align-items: center; }
 .inline-setting .control-input { margin: 0; }
 .pda-setting { margin: -8px 0 20px; }
+.detected-type { color: #a9b4ab; font: 11px var(--mono); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 0 10px; color: #829087; font: 500 9px var(--mono); letter-spacing: .13em; }
 .icon-button { display: grid; place-items: center; width: 24px; height: 23px; padding: 0; border: 1px solid #354039; border-radius: 5px; background: #202822; color: var(--accent); font-size: 17px; line-height: 1; cursor: pointer; }
 .icon-button:hover, .icon-button.is-active { border-color: var(--accent); background: var(--accent-dark); }
