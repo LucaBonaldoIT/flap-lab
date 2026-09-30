@@ -64,6 +64,11 @@ app.innerHTML = `
       <div class="section-heading"><span>STATES</span><button class="icon-button" id="add-state" title="Add state">＋</button></div>
       <div class="state-list" id="state-list"><div class="empty-list">No states yet. Add one to begin.</div></div>
 
+      <section class="transition-table-section" id="transition-table-section" hidden>
+        <div class="section-heading"><span>TRANSITION TABLE</span></div>
+        <div class="transition-table-wrap" id="transition-table-wrap"></div>
+      </section>
+
       <div class="editor-card" id="state-editor">
         <div class="editor-card-heading"><span class="editor-indicator"></span><span id="selected-title">SELECT A STATE</span></div>
         <div id="state-editor-fields" class="muted-hint">Select a state on the canvas to edit its properties.</div>
@@ -1079,6 +1084,7 @@ function renderStateEditor(): void {
 }
 
 function renderTransitions(): void {
+  renderTransitionTable();
   transitionList.replaceChildren();
   $('#transition-count').textContent = String(machine.transitions.length);
   if (!machine.transitions.length) { transitionList.innerHTML = '<div class="transition-empty">Transitions you add will appear here.</div>'; return; }
@@ -1093,6 +1099,32 @@ function renderTransitions(): void {
     remove.addEventListener('click', (event) => { event.stopPropagation(); machine.removeTransition(transition as never); if (selectedTransition === transition) selectedTransition = null; render(); commitHistory(); });
     row.append(from, arrow, to, label, remove); transitionList.append(row);
   }
+}
+
+function renderTransitionTable(): void {
+  const section = $('#transition-table-section');
+  const wrap = $('#transition-table-wrap');
+  if (!section || !wrap) return;
+  const isFSA = machine instanceof FiniteStateAutomaton;
+  section.hidden = !isFSA;
+  if (!isFSA) return;
+  if (!machine.states.length) { wrap.innerHTML = '<div class="empty-list">Add a state to build the table.</div>'; return; }
+  const automaton = machine;
+  const symbols: string[] = [];
+  for (const transition of automaton.transitions) {
+    if (transition instanceof FSATransition && !symbols.includes(transition.label)) symbols.push(transition.label);
+  }
+  symbols.sort((left, right) => (left === '' ? -1 : right === '' ? 1 : left.localeCompare(right)));
+  const stateHeader = (state: State): string => `${automaton.initialState === state ? '→' : ''}${automaton.isFinalState(state) ? '*' : ''}${state.name}`;
+  const body = automaton.states.map((state) => {
+    const cells = symbols.map((symbol) => {
+      const targets = [...new Set(automaton.transitions.filter((transition) => transition instanceof FSATransition && transition.from === state && transition.label === symbol).map((transition) => transition.to.name))];
+      if (!targets.length) return '<td class="cell-empty">∅</td>';
+      return `<td>${escapeHtml(targets.length === 1 ? targets[0]! : `{${targets.join(', ')}}`)}</td>`;
+    });
+    return `<tr><th scope="row">${escapeHtml(stateHeader(state))}</th>${cells.join('')}</tr>`;
+  });
+  wrap.innerHTML = `<table class="transition-table"><thead><tr><th>Q \\ Σ</th>${symbols.map((symbol) => `<th>${escapeHtml(symbol || 'λ')}</th>`).join('')}</tr></thead><tbody>${body.join('')}</tbody></table>`;
 }
 
 function renderSelectedTransitionEditor(): void {

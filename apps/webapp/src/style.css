@@ -129,6 +129,15 @@ select { appearance: none; padding-right: 30px; }
 .icon-button { display: grid; place-items: center; width: 24px; height: 23px; padding: 0; border: 1px solid #354039; border-radius: 5px; background: #202822; color: var(--accent); font-size: 17px; line-height: 1; cursor: pointer; }
 .icon-button:hover, .icon-button.is-active { border-color: var(--accent); background: var(--accent-dark); }
 .state-list { display: flex; flex-direction: column; gap: 3px; max-height: min(35vh, 300px); overflow: auto; margin: 0 -5px 17px; padding: 0 5px; }
+.transition-table-section { margin-bottom: 17px; }
+.transition-table-section[hidden] { display: none; }
+.transition-table-wrap { max-height: 220px; overflow: auto; scrollbar-gutter: stable; }
+.transition-table { width: 100%; border-collapse: collapse; font: 10px var(--mono); color: #a9b4ab; }
+.transition-table th, .transition-table td { border: 1px solid #252d27; padding: 4px 7px; text-align: center; white-space: nowrap; }
+.transition-table th { background: #1b211d; color: #829087; font-weight: 600; }
+.transition-table td { background: #151a17; }
+.transition-table td:first-child, .transition-table th:first-child { position: sticky; left: 0; text-align: left; background: var(--panel); min-width: 64px; }
+.transition-table .cell-empty { color: #5b685f; }
 .empty-list { padding: 14px 9px; color: #66736a; font-size: 10px; line-height: 1.5; }
 .state-list-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #b9c4bb; text-align: left; cursor: pointer; }
 .state-list-item:hover { background: #1d251f; }
