@@ -69,6 +69,7 @@ app.innerHTML = `
         <div id="state-editor-fields" class="muted-hint">Select a state on the canvas to edit its properties.</div>
       </div>
 
+      <div class="panel-resizer panel-resizer-left" id="panel-resizer-left"></div>
     </aside>
 
     <section class="canvas-column">
@@ -108,6 +109,7 @@ app.innerHTML = `
         <div class="canvas-coordinates" id="canvas-coordinates">0 states · 0 transitions</div>
       </div>
       <section class="transition-panel">
+        <div class="panel-resizer panel-resizer-bottom" id="panel-resizer-bottom"></div>
         <div class="panel-heading"><div><span class="eyebrow">TRANSITIONS</span><span class="panel-count" id="transition-count">0</span></div><button class="text-button" id="clear-transitions">Clear all</button></div>
         <div class="transition-list" id="transition-list"><div class="transition-empty">Transitions you add will appear here.</div></div>
       </section>
@@ -155,6 +157,7 @@ app.innerHTML = `
       </section>
 
       <div class="right-sidebar-footer"><span class="license-links"><a href="./LICENSE-JFLAP" target="_blank" rel="noreferrer">License</a><a href="https://github.com/LucaBonaldoIT/flap-lab/issues" target="_blank" rel="noreferrer">Contact</a></span></div>
+      <div class="panel-resizer panel-resizer-right" id="panel-resizer-right"></div>
     </aside>
   </main>
   <footer class="statusbar"><span id="status-message"><i class="status-led"></i> Ready — create a machine to start</span><span>FLAP LAB <b>·</b> MADE BY <a href="https://github.com/LucaBonaldoIT">LUCA BONALDO</a></span></footer>
@@ -398,6 +401,96 @@ function addRecent(entry: { name: string; kind: 'automaton' | 'text'; data: stri
     localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 8)));
   } catch { /* ignore */ }
 }
+
+const PANELS_KEY = 'flap-lab.panels.v1';
+const DEFAULT_PANELS: PanelSizes = { left: 250, right: 300, bottom: 178 };
+const PANEL_LIMITS = { left: [180, 560], right: [200, 560], bottom: [80, 460] } as const;
+
+interface PanelSizes { left: number; right: number; bottom: number; }
+
+const desktopPanelsQuery = window.matchMedia('(min-width: 1051px) and (pointer: fine)');
+let panelSizes: PanelSizes = loadPanelSizes();
+
+function clampPanel(value: number, range: readonly [number, number]): number {
+  return Math.min(range[1], Math.max(range[0], Math.round(value)));
+}
+
+function loadPanelSizes(): PanelSizes {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PANELS_KEY) ?? 'null') as Partial<PanelSizes> | null;
+    if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_PANELS };
+    return {
+      left: clampPanel(Number(parsed.left ?? DEFAULT_PANELS.left), PANEL_LIMITS.left),
+      right: clampPanel(Number(parsed.right ?? DEFAULT_PANELS.right), PANEL_LIMITS.right),
+      bottom: clampPanel(Number(parsed.bottom ?? DEFAULT_PANELS.bottom), PANEL_LIMITS.bottom),
+    };
+  } catch { return { ...DEFAULT_PANELS }; }
+}
+
+function persistPanelSizes(): void {
+  try { localStorage.setItem(PANELS_KEY, JSON.stringify(panelSizes)); } catch { /* ignore */ }
+}
+
+function applyPanelSizes(): void {
+  const workspace = document.querySelector<HTMLElement>('.workspace');
+  const bottomPanel = document.querySelector<HTMLElement>('.transition-panel');
+  if (!workspace || !bottomPanel) return;
+  if (!desktopPanelsQuery.matches) {
+    workspace.style.removeProperty('grid-template-columns');
+    bottomPanel.style.removeProperty('flex-basis');
+    bottomPanel.style.removeProperty('max-height');
+    return;
+  }
+  workspace.style.gridTemplateColumns = `${panelSizes.left}px minmax(400px, 1fr) ${panelSizes.right}px`;
+  bottomPanel.style.flexBasis = `${panelSizes.bottom}px`;
+  bottomPanel.style.maxHeight = `${panelSizes.bottom}px`;
+}
+
+function bindPanelResizer(handle: HTMLElement, axis: 'x' | 'y', panel: 'left' | 'right' | 'bottom', onMove: (event: PointerEvent, workspace: DOMRect) => void): void {
+  handle.addEventListener('dblclick', () => {
+    if (!desktopPanelsQuery.matches) return;
+    panelSizes = { ...panelSizes, [panel]: DEFAULT_PANELS[panel] };
+    applyPanelSizes();
+    persistPanelSizes();
+  });
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'touch' || !desktopPanelsQuery.matches) return;
+    event.preventDefault();
+    const workspaceRect = document.querySelector('.workspace')!.getBoundingClientRect();
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+    handle.classList.add('is-resizing');
+    const move = (moveEvent: PointerEvent) => onMove(moveEvent, workspaceRect);
+    const stop = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.removeProperty('user-select');
+      handle.classList.remove('is-resizing');
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      persistPanelSizes();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  });
+}
+
+bindPanelResizer($('#panel-resizer-left'), 'x', 'left', (event, workspaceRect) => {
+  panelSizes.left = clampPanel(event.clientX - workspaceRect.left, PANEL_LIMITS.left);
+  applyPanelSizes();
+});
+bindPanelResizer($('#panel-resizer-right'), 'x', 'right', (event, workspaceRect) => {
+  panelSizes.right = clampPanel(workspaceRect.right - event.clientX, PANEL_LIMITS.right);
+  applyPanelSizes();
+});
+bindPanelResizer($('#panel-resizer-bottom'), 'y', 'bottom', (event) => {
+  const bottomRect = $<HTMLElement>('.transition-panel').getBoundingClientRect();
+  panelSizes.bottom = clampPanel(bottomRect.bottom - event.clientY, PANEL_LIMITS.bottom);
+  applyPanelSizes();
+});
+desktopPanelsQuery.addEventListener('change', applyPanelSizes);
 
 let startMenuView: 'main' | 'new' | 'all' = 'main';
 
@@ -1901,6 +1994,7 @@ if (!restoreWorkspace()) {
 }
 updateGridBackground();
 updateHistoryButtons();
+applyPanelSizes();
 window.addEventListener('beforeunload', persistWorkspace);
 document.addEventListener('gesturestart', (event) => {
   if ((event.target as Element).closest('.canvas-shell')) event.preventDefault();

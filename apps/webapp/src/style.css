@@ -62,6 +62,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .workspace.is-text-mode, .workspace.is-start-mode { display: flex; }
 .workspace.is-text-mode .left-sidebar, .workspace.is-text-mode .canvas-column, .workspace.is-text-mode .right-sidebar,
 .workspace.is-start-mode .left-sidebar, .workspace.is-start-mode .canvas-column, .workspace.is-start-mode .right-sidebar { display: none; }
+
+.panel-resizer { position: absolute; z-index: 55; display: none; touch-action: none; }
+.panel-resizer:hover, .panel-resizer.is-resizing { background: #46523f; }
+.panel-resizer.is-resizing { background: var(--accent); }
+@media (min-width: 1051px) and (pointer: fine) {
+  .panel-resizer { display: block; }
+  .panel-resizer-left { top: 0; bottom: 0; right: -4px; width: 9px; border-radius: 3px; cursor: col-resize; }
+  .panel-resizer-right { top: 0; bottom: 0; left: -4px; width: 9px; border-radius: 3px; cursor: col-resize; }
+  .panel-resizer-bottom { top: -4px; left: 0; right: 0; height: 9px; border-radius: 3px; cursor: row-resize; }
+}
 #text-editor { flex: 1 1 auto; min-height: 0; width: 100%; padding: 24px 28px; border: 0; outline: 0; resize: none; background: #101412; color: #d6ded8; font: 13px/1.75 var(--mono); caret-color: var(--accent); }
 #text-editor::placeholder { color: #556158; }
 .start-overlay { position: absolute; inset: 0; z-index: 100; display: grid; place-items: center; background: #0b0f0cd9; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px); }
@@ -90,7 +100,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .start-recent-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .start-recent-time { flex: 0 0 auto; margin-left: auto; color: #6d7a70; font-size: 8px; white-space: nowrap; }
 .start-recents-empty { padding: 10px 2px; color: #58655c; font-size: 10px; }
-.sidebar { display: flex; flex-direction: column; min-height: 0; padding: 19px 16px 13px; background: var(--panel); }
+.sidebar { position: relative; display: flex; flex-direction: column; min-height: 0; padding: 19px 16px 13px; background: var(--panel); }
 .left-sidebar { border-right: 1px solid var(--line); }
 .right-sidebar { border-left: 1px solid var(--line); }
 .sidebar-heading { display: flex; justify-content: space-between; align-items: center; margin: 0 0 18px; }
@@ -187,13 +197,13 @@ select { appearance: none; padding-right: 30px; }
 .state-initial .final-ring, .state-both .final-ring { stroke: var(--accent); }
 .state-name { fill: #edf3ee; font: 600 13px var(--mono); text-anchor: middle; pointer-events: none; }
 .state-sub-label { fill: #9bab9e; font: 9px var(--mono); text-anchor: middle; pointer-events: none; }
-.transition-panel { flex: 0 0 178px; max-height: 178px; border-top: 1px solid var(--line); background: #151a17; user-select: none; -webkit-user-select: none; }
+.transition-panel { position: relative; display: flex; flex-direction: column; flex: 0 0 178px; max-height: 178px; border-top: 1px solid var(--line); background: #151a17; user-select: none; -webkit-user-select: none; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; height: 42px; padding: 0 18px; border-bottom: 1px solid #252d27; }
 .panel-heading > div { display: flex; align-items: center; gap: 8px; }
 .panel-count { display: grid; place-items: center; min-width: 17px; height: 17px; border-radius: 5px; background: #252e28; color: #a2afa4; font: 9px var(--mono); }
 .text-button { border: 0; background: transparent; color: #77837a; font-size: 9px; cursor: pointer; }
 .text-button:hover { color: var(--red); }
-.transition-list { display: flex; flex-direction: column; gap: 1px; height: 135px; overflow: auto; padding: 5px 13px 10px; }
+.transition-list { display: flex; flex-direction: column; gap: 1px; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 5px 13px 10px; }
 .transition-empty { padding: 17px 5px; color: #657168; font-size: 10px; }
 .transition-row { display: grid; grid-template-columns: minmax(35px, auto) 20px minmax(35px, auto) 1fr 24px; align-items: center; gap: 8px; min-height: 29px; padding: 0 6px; border-radius: 4px; color: #a9b4ab; font-size: 10px; }
 .transition-row:hover { background: #1d241f; }
