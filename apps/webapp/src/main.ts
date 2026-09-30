@@ -1983,7 +1983,7 @@ $('#automaton-canvas').addEventListener('click', (event) => {
   const target = event.target as Element;
   if (target.closest('.state-node, .edge-path, .edge-label')) return;
   if (moveModeState) { moveModeState = null; selectTransition(null); return; }
-  multiSelectedStates = [];
+  if (multiSelectedStates.length) { multiSelectedStates = []; selectedState = null; selectedTransition = null; renderGraph(); setStatus('Selection cleared.'); return; }
   addState(eventToCanvas(event));
   if (addStateMode) { $('#add-state').classList.remove('is-active'); $('#canvas-shell').classList.remove('is-adding'); }
 });
