@@ -935,10 +935,12 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
   graphLayer.append(path);
   const label = svgElement('text');
   label.classList.add('edge-label'); label.setAttribute('x', String(labelX)); label.setAttribute('y', String(labelY));
+  label.dataset.pairKey = pairKey;
   if (groupIsSelected) label.classList.add('is-selected');
   if (stepIncomingKeys.has(pairKey)) label.classList.add('is-step-incoming');
   if (stepOutgoingKeys.has(pairKey)) label.classList.add('is-step-outgoing');
   label.textContent = groupedTransitions.map(transitionLabel).join(', ');
+  if (pairKey === edgeLabelEditingPair) label.style.opacity = '0';
   label.addEventListener('click', (event) => { event.stopPropagation(); selectTransition(selectionTarget); });
   const beginEdgeEdit = (event: MouseEvent): void => { event.stopPropagation(); event.preventDefault(); beginEdgeLabelEdit(selectionTarget, labelX, labelY); };
   path.addEventListener('dblclick', beginEdgeEdit);
@@ -1088,6 +1090,16 @@ function splitSymbols(raw: string): string[] {
   return raw.split(',').map((item) => item.trim()).map((item) => /^(λ|Λ|ε)$/u.test(item) ? '' : item);
 }
 
+function normalizeLabelSymbols(raw: string): string[] {
+  const symbols: string[] = [];
+  for (const symbol of splitSymbols(raw)) if (!symbols.includes(symbol)) symbols.push(symbol);
+  return symbols;
+}
+
+function formatLabelSymbols(symbols: string[]): string {
+  return symbols.map((symbol) => symbol || 'λ').join(', ');
+}
+
 let edgeLabelEditor: HTMLInputElement | null = null;
 
 function beginEdgeLabelEdit(transition: Transition, labelX: number, labelY: number): void {
@@ -1099,46 +1111,117 @@ function beginEdgeLabelEdit(transition: Transition, labelX: number, labelY: numb
   const shell = document.querySelector<HTMLElement>('.canvas-shell');
   if (!shell) return;
   window.clearTimeout(edgeEditTimer);
-  edgeLabelEditor?.remove();
+  cancelEdgeLabelEdit();
+  edgeLabelEditingPair = `${transition.from.id}:${transition.to.id}`;
   const input = document.createElement('input');
   edgeLabelEditor = input;
   input.className = 'edge-label-editor';
   input.type = 'text';
-  input.value = labelGroup(transition).map((label) => label || 'λ').join(', ');
-  const view = svg.viewBox.baseVal;
-  const scale = svgUnitScale();
-  input.style.left = `${(labelX - view.x) * scale}px`;
-  input.style.top = `${(labelY - view.y) * scale}px`;
-  const commit = (): void => {
-    const raw = input.value;
-    cancelEdgeLabelEdit();
-    const symbols = splitSymbols(raw);
+  input.value = formatLabelSymbols(normalizeLabelSymbols(labelGroup(transition).join(', ')));
+  const labelElement = graphLayer.querySelector(`[data-pair-key="${edgeLabelEditingPair}"]`);
+  if (labelElement instanceof SVGTextElement) labelElement.style.opacity = '0';
+  const labelRect = labelElement?.getBoundingClientRect();
+  const shellRect = shell.getBoundingClientRect();
+  if (labelRect && labelRect.width) {
+    input.style.left = `${labelRect.left - shellRect.left + labelRect.width / 2}px`;
+    input.style.top = `${labelRect.top - shellRect.top + labelRect.height / 2}px`;
+  } else {
+    const view = svg.viewBox.baseVal;
+    const bounds = shell.getBoundingClientRect();
+    const scale = svgUnitScale();
+    const offsetX = (bounds.width - view.width * scale) / 2;
+    const offsetY = (bounds.height - view.height * scale) / 2;
+    input.style.left = `${offsetX + (labelX - view.x) * scale}px`;
+    input.style.top = `${offsetY + (labelY - view.y) * scale}px`;
+  }
+  const applyLabel = (): void => {
+    const symbols = normalizeLabelSymbols(input.value);
+    const formatted = formatLabelSymbols(symbols);
+    if (input.value !== formatted) input.value = formatted;
     try {
       if (machine instanceof FiniteStateAutomaton) reconcileLabelGroup(machine, transition, symbols);
       else if (machine instanceof MealyMachine) reconcileLabelGroup(machine, transition, symbols);
       else if (machine instanceof MooreMachine) reconcileLabelGroup(machine, transition, symbols);
       else throw new Error('Transition does not match the machine type.');
-      renderGraph(); renderTransitions(); commitHistory(); setStatus('Transition updated.', 'success');
+      renderGraph(); renderTransitions(); renderSelectedTransitionEditor(); commitHistory(); setStatus('Transition updated.', 'success');
+      const liveLabel = graphLayer.querySelector(`[data-pair-key="${transition.from.id}:${transition.to.id}"]`);
+      const liveRect = liveLabel?.getBoundingClientRect();
+      if (liveRect && liveRect.width) {
+        input.style.left = `${liveRect.left - shellRect.left + liveRect.width / 2}px`;
+        input.style.top = `${liveRect.top - shellRect.top + liveRect.height / 2}px`;
+      }
     } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update transition.', 'error'); }
   };
+  const commit = (): void => {
+    window.clearTimeout(inlineApplyTimer);
+    cancelEdgeLabelEdit();
+    applyLabel();
+  };
+  input.addEventListener('input', scheduleInlineLabelApply);
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') { event.preventDefault(); commit(); }
     else if (event.key === 'Escape') { event.preventDefault(); edgeEditorCancelled = true; cancelEdgeLabelEdit(); }
   });
   input.addEventListener('blur', () => {
     if (edgeEditorCancelled) { edgeEditorCancelled = false; return; }
-    commit();
+    window.setTimeout(() => {
+      if (edgeLabelEditor === input) commit();
+    }, 0);
   });
+  const interactiveTarget = (target: EventTarget | null): boolean => target === input || (target instanceof HTMLElement && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable));
+  const stopPointer = (event: PointerEvent): void => {
+    if (interactiveTarget(event.target)) return;
+    event.stopPropagation();
+    event.preventDefault();
+  };
+  const confirmClick = (event: MouseEvent): void => {
+    if (interactiveTarget(event.target)) return;
+    event.stopPropagation();
+    event.preventDefault();
+    cancelEdgeLabelEdit();
+    applyLabel();
+    const guard = (guardEvent: Event): void => {
+      if (!(guardEvent.target instanceof Element) || !guardEvent.target.closest('.canvas-shell')) return;
+      guardEvent.stopPropagation();
+      guardEvent.preventDefault();
+    };
+    document.addEventListener('click', guard, true);
+    document.addEventListener('pointerdown', guard, true);
+    window.setTimeout(() => {
+      document.removeEventListener('click', guard, true);
+      document.removeEventListener('pointerdown', guard, true);
+    }, 350);
+  };
+  edgeEditorPointerSuppressor = stopPointer;
+  edgeEditorClickSuppressor = confirmClick;
+  edgeLabelApplier = applyLabel;
+  document.addEventListener('pointerdown', stopPointer, true);
+  document.addEventListener('click', confirmClick, true);
   shell.append(input);
   input.focus();
   input.select();
 }
 
 let edgeEditorCancelled = false;
+let edgeLabelEditingPair: string | null = null;
+let inlineApplyTimer = 0;
+let edgeLabelApplier: (() => void) | null = null;
+
+function scheduleInlineLabelApply(): void {
+  window.clearTimeout(inlineApplyTimer);
+  inlineApplyTimer = window.setTimeout(() => { edgeLabelApplier?.(); }, 450);
+}
+let edgeEditorPointerSuppressor: ((event: PointerEvent) => void) | null = null;
+let edgeEditorClickSuppressor: ((event: MouseEvent) => void) | null = null;
 
 function cancelEdgeLabelEdit(): void {
   edgeLabelEditor?.remove();
   edgeLabelEditor = null;
+  edgeLabelEditingPair = null;
+  edgeLabelApplier = null;
+  window.clearTimeout(inlineApplyTimer);
+  if (edgeEditorPointerSuppressor) { document.removeEventListener('pointerdown', edgeEditorPointerSuppressor, true); edgeEditorPointerSuppressor = null; }
+  if (edgeEditorClickSuppressor) { document.removeEventListener('click', edgeEditorClickSuppressor, true); edgeEditorClickSuppressor = null; }
 }
 
 let edgeEditTimer = 0;
@@ -1174,7 +1257,7 @@ function applySelectedTransitionEdit(): void {
   try {
     if (transition instanceof FSATransition) {
       if (!(machine instanceof FiniteStateAutomaton)) throw new Error('Transition does not match the machine type.');
-      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
+      reconcileLabelGroup(machine, transition, normalizeLabelSymbols(value('edit-edge-label')));
     } else if (transition instanceof PDATransition) {
       const input = lambda(value('edit-edge-input')); const pop = lambda(value('edit-edge-pop')); const push = lambda(value('edit-edge-push'));
       if (machine instanceof PushdownAutomaton && machine.singleInput && ([...pop].length > 1 || [...push].length > 1)) throw new Error('Single-symbol stack operations must contain at most one symbol.');
@@ -1191,11 +1274,11 @@ function applySelectedTransitionEdit(): void {
     } else if (transition instanceof MooreTransition) {
       if (!(machine instanceof MooreMachine)) throw new Error('Transition does not match the machine type.');
       machine.setOutput(transition.to, lambda(value('edit-edge-output')));
-      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
+      reconcileLabelGroup(machine, transition, normalizeLabelSymbols(value('edit-edge-label')));
     } else if (transition instanceof MealyTransition) {
       if (!(machine instanceof MealyMachine)) throw new Error('Transition does not match the machine type.');
       transition.setOutput(lambda(value('edit-edge-output')));
-      reconcileLabelGroup(machine, transition, splitSymbols(value('edit-edge-label')));
+      reconcileLabelGroup(machine, transition, normalizeLabelSymbols(value('edit-edge-label')));
     }
     renderGraph(); renderTransitions(); commitHistory();
     fillEmptyEdgeEditFields(transition);
@@ -1206,8 +1289,8 @@ function applySelectedTransitionEdit(): void {
 function fillEmptyEdgeEditFields(transition: Transition): void {
   const labelField = document.getElementById('edit-edge-label') as HTMLInputElement | null;
   if (labelField && (transition instanceof FSATransition || transition instanceof MealyTransition)) {
-    const symbols = splitSymbols(labelField.value);
-    if (symbols.some((symbol) => !symbol)) labelField.value = symbols.map((symbol) => symbol || 'λ').join(', ');
+    const formatted = formatLabelSymbols(normalizeLabelSymbols(labelField.value));
+    if (labelField.value !== formatted) labelField.value = formatted;
   }
   const setField = (id: string, value: string): void => {
     const field = document.getElementById(id) as HTMLInputElement | null;
