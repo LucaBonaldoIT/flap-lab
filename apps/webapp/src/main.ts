@@ -67,7 +67,6 @@ app.innerHTML = `
       <section class="transition-table-section" id="transition-table-section" hidden>
         <div class="section-heading"><span>TRANSITION TABLE</span></div>
         <div class="transition-table-wrap" id="transition-table-wrap"></div>
-        <button class="button convert-dfa-button" id="convert-dfa" hidden title="Subset construction: opens the equivalent DFA in a new tab">Open equivalent DFA</button>
       </section>
 
       <div class="editor-card" id="state-editor">
@@ -937,7 +936,8 @@ function renderSimulatorOptions(): void {
 function renderMachineSettings(): void {
   const settings = $('#machine-settings');
   if (machine instanceof FiniteStateAutomaton) {
-    settings.innerHTML = `<div class="machine-setting"><span class="field-label">Automaton type</span><div class="detected-type" id="detected-automaton-type">λ-NFA (lambda transitions)</div></div>`;
+    settings.innerHTML = `<div class="machine-setting"><span class="field-label">Automaton type</span><div class="detected-type" id="detected-automaton-type">λ-NFA</div><button class="button convert-dfa-button" id="convert-dfa" hidden title="Subset construction: opens the equivalent DFA in a new tab">Generate DFA</button></div>`;
+    $('#convert-dfa').addEventListener('click', openEquivalentDFA);
     renderAutomatonMode();
     return;
   }
@@ -2002,6 +2002,22 @@ function loadExample(type: MachineType): void {
   setStatus(`Loaded example: ${entry.title}.`); showToast('Example machine loaded');
 }
 
+function openEquivalentDFA(): void {
+  if (!(machine instanceof FiniteStateAutomaton)) return;
+  const dfa = buildEquivalentDFA(machine);
+  if (!dfa.states.length || !dfa.initialState) { setStatus('Add an initial state to build the equivalent DFA.', 'error'); return; }
+  const startTabId = activeTab()?.kind === 'start' ? activeTabId : '';
+  const name = `${currentFilename.replace(/\.jff$/iu, '') || 'nfa'}_dfa.jff`;
+  openTab(dfa, name);
+  const tab = activeTab();
+  if (tab) tab.recentKey = `automaton:${name.toLowerCase()}`;
+  addRecent({ name, kind: 'automaton', data: JFFCodec.encode(machine) });
+  if (startTabId) closeTab(startTabId);
+  render(); commitHistory(); updateHistoryButtons();
+  refreshSimulations();
+  setStatus('Equivalent DFA opened in a new tab.', 'success'); showToast('Equivalent DFA generated');
+}
+
 function openJff(file: File): void {
   file.text().then((contents) => {
     const structure = JFFCodec.decode(contents);
@@ -2279,21 +2295,6 @@ $('#text-editor').addEventListener('input', () => {
   textSaveTimer = window.setTimeout(persistWorkspace, 600);
 });
 $('#save-file').addEventListener('click', saveJff);
-$('#convert-dfa').addEventListener('click', () => {
-  if (!(machine instanceof FiniteStateAutomaton)) return;
-  const dfa = buildEquivalentDFA(machine);
-  if (!dfa.states.length || !dfa.initialState) { setStatus('Add an initial state to build the equivalent DFA.', 'error'); return; }
-  const startTabId = activeTab()?.kind === 'start' ? activeTabId : '';
-  const name = `${currentFilename.replace(/\.jff$/iu, '') || 'nfa'}_dfa.jff`;
-  openTab(dfa, name);
-  const tab = activeTab();
-  if (tab) tab.recentKey = `automaton:${name.toLowerCase()}`;
-  addRecent({ name, kind: 'automaton', data: JFFCodec.encode(machine) });
-  if (startTabId) closeTab(startTabId);
-  render(); commitHistory(); updateHistoryButtons();
-  refreshSimulations();
-  setStatus('Equivalent DFA opened in a new tab.', 'success'); showToast('Equivalent DFA generated');
-});
 $('#open-file').addEventListener('change', (event) => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) openFile(file); (event.target as HTMLInputElement).value = ''; });
 const dropOverlay = $('#drop-overlay');
 let dropOverlayTimer = 0;
