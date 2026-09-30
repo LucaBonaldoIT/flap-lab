@@ -483,6 +483,7 @@ function convertToTextTab(filename: string, text: string): void {
   history = tab.history; historyIndex = 0;
   selectedState = null; selectedTransition = null;
   stepperSession = null;
+  tab.recentKey = `text:${filename.toLowerCase()}`;
   setFilename(filename);
   render();
   refreshSimulations();
@@ -1399,9 +1400,11 @@ function resolveSimulateInputs(raw: string, depth = 0): string[] {
     if (token.startsWith('@')) {
       const name = token.slice(1).trim();
       if (!name) continue;
-      const entry = loadRecents().find((item) => item.kind === 'text' && item.name.toLowerCase() === name.toLowerCase());
-      if (!entry) throw new Error(`Referenced file "${token}" not found. Open it once so it can be used.`);
-      result.push(...resolveSimulateInputs(entry.data, depth + 1));
+      const key = `text:${name.toLowerCase()}`;
+      const openText = openTabs.find((tab) => tab.kind === 'text' && (tab.recentKey ?? `text:${tab.filename.toLowerCase()}`) === key);
+      const data = openText ? openText.text : loadRecents().find((item) => item.kind === 'text' && item.name.toLowerCase() === name.toLowerCase())?.data;
+      if (data === undefined) throw new Error(`Referenced file "${token}" not found. Open it once so it can be used.`);
+      result.push(...resolveSimulateInputs(data, depth + 1));
     } else {
       result.push(token);
     }
