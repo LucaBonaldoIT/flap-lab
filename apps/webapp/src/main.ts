@@ -40,7 +40,7 @@ app.innerHTML = `
       <button class="button button-quiet history-button" id="redo-action" title="Redo (Ctrl/⌘ Y)" aria-label="Redo" disabled>↷</button>
       <button class="button button-quiet" id="new-machine" title="Create a new machine">New</button>
       <label class="button button-quiet file-button" for="open-file">Open file<input id="open-file" type="file" /></label>
-      <button class="button button-primary" id="save-file"><span class="button-icon">↧</span> Export .jff</button>
+      <button class="button button-primary" id="save-file" title="Save (Ctrl/⌘ S)"><span class="button-icon">↧</span> Export .jff</button>
     </div>
   </header>
 
@@ -1891,6 +1891,9 @@ document.addEventListener('keydown', (event) => {
   if (key === '-') { event.preventDefault(); zoomAt(1 / 1.2); return; }
   if ((key === 'z' && event.shiftKey) || key === 'y') { event.preventDefault(); restoreHistory(historyIndex + 1); }
   else if (key === 'z') { event.preventDefault(); restoreHistory(historyIndex - 1); }
+});
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); saveJff(); }
 });
 document.addEventListener('keyup', (event) => { if (event.code === 'Space') spacePanActive = false; });
 if (!restoreWorkspace()) {
