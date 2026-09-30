@@ -919,12 +919,13 @@ function renderTransition(transition: Transition, groupedTransitions: Transition
     const ux = dx / length; const uy = dy / length;
     const startX = from.x + ux * 38; const startY = from.y + uy * 38;
     const endX = to.x - ux * 40; const endY = to.y - uy * 40;
-    const curve = transition.from.id > transition.to.id ? 26 : -26;
+    const curve = -26;
     const controlX = transition.control?.x ?? (startX + endX) / 2 - uy * curve;
     const controlY = transition.control?.y ?? (startY + endY) / 2 + ux * curve;
     path.setAttribute('d', `M ${startX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`);
-    labelX = (startX + 2 * controlX + endX) / 4;
-    labelY = (startY + 2 * controlY + endY) / 4 - 11;
+    const offset = curve / 2 - 12;
+    labelX = (startX + endX) / 2 - uy * offset;
+    labelY = (startY + endY) / 2 + ux * offset;
   }
   path.addEventListener('click', (event) => { event.stopPropagation(); selectTransition(selectionTarget); });
   const hitArea = svgElement('path');
